@@ -17,18 +17,14 @@ concurrency:
 
 jobs:
   fetch:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-latest         # в образе раннера Python 3.12 уже предустановлен
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
 
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: "none"
-
       - name: Собрать расписание
         run: |
+          python3 --version
           python3 fetch_all.py --days=-1..3 --workers=4
 
       - name: Закоммитить изменения
@@ -40,5 +36,6 @@ jobs:
             echo "Изменений нет"
           else
             git commit -m "data: обновление расписания $(date -u +'%Y-%m-%d %H:%M') UTC"
-            git push
+            git pull --rebase origin "${{ github.ref_name }}"
+            git push origin "HEAD:${{ github.ref_name }}"
           fi
