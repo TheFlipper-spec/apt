@@ -1,0 +1,44 @@
+name: Обновление расписания (бот)
+
+on:
+  # каждые 30 минут; смещение от начала часа снижает шанс попасть в очередь
+  schedule:
+    - cron: "12,42 * * * *"
+  workflow_dispatch: {}            # ручной запуск из вкладки Actions
+  push:
+    paths: ["fetch_all.py", "parser.py", "static/index.html"]  # при изменении кода — тоже собрать
+
+permissions:
+  contents: write                  # нужно для коммита данных в репозиторий
+
+concurrency:
+  group: schedule-bot
+  cancel-in-progress: false
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: "none"
+
+      - name: Собрать расписание
+        run: |
+          python3 fetch_all.py --days=-1..3 --workers=4
+
+      - name: Закоммитить изменения
+        run: |
+          git config user.name  "apt-schedule-bot"
+          git config user.email "apt-schedule-bot@users.noreply.github.com"
+          git add docs
+          if git diff --cached --quiet; then
+            echo "Изменений нет"
+          else
+            git commit -m "data: обновление расписания $(date -u +'%Y-%m-%d %H:%M') UTC"
+            git push
+          fi
