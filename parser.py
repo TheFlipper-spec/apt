@@ -30,7 +30,7 @@ class Node:
         return "".join(parts)
 
     def norm_text(self):
-        t = _html.unescape(self.text()).replace(" ", " ")
+        t = _html.unescape(self.text()).replace("\u00a0", " ")
         return re.sub(r"\s+", " ", t).strip()
 
     def has_class(self, *cls):
@@ -39,6 +39,12 @@ class Node:
 
     def classes(self):
         return set(self.attrs.get("class", "").split())
+
+    def ancestors(self):
+        n = self.parent
+        while n is not None:
+            yield n
+            n = n.parent
 
 
 VOID = {"br", "img", "input", "hr", "meta", "link", "col", "wbr", "area", "base", "embed", "source", "track"}
@@ -87,6 +93,13 @@ def find_all(node, pred):
     return [n for n in walk(node) if n is not node and pred(n)]
 
 
+def find_outermost(node, pred):
+    """Как find_all, но без вложенных друг в друга совпадений."""
+    hits = find_all(node, pred)
+    hit_set = set(id(h) for h in hits)
+    return [h for h in hits if not any(id(a) in hit_set for a in h.ancestors())]
+
+
 def first(node, pred):
     for n in walk(node):
         if n is not node and pred(n):
@@ -97,7 +110,7 @@ def first(node, pred):
 def clean(s):
     if s is None:
         return ""
-    t = _html.unescape(str(s)).replace(" ", " ")
+    t = _html.unescape(str(s)).replace("\u00a0", " ")
     return re.sub(r"\s+", " ", t).strip()
 
 
@@ -105,7 +118,7 @@ def clean(s):
 def roman_to_int(r):
     vals = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100}
     total, prev = 0, 0
-    for ch in reversed(r.strip()):
+    for ch in reversed((r or "").strip()):
         v = vals.get(ch, 0)
         if v < prev:
             total -= v
@@ -151,7 +164,7 @@ BELLS_FALLBACK = [
     ("V",   "14:20", "15:40"),
     ("VI",  "15:50", "17:10"),
     ("VII", "17:15", "18:35"),
-    ("VIII","18:40", "20:00"),
+    ("VIII", "18:40", "20:00"),
 ]
 
 
@@ -164,6 +177,20 @@ def _parse_time(text):
     if len(nums) == 2:
         return (f"{nums[0]}:{nums[1]}", "")
     return ("", "")
+
+
+def _norm_subgroup(txt):
+    """Приводим «1 п/гр.», «1 подгруппа», «I подгр.» к единому виду."""
+    t = clean(txt).lower()
+    if not t:
+        return ""
+    if re.search(r"\b1\b|перв", t):
+        return "1 п/гр."
+    if re.search(r"\b2\b|втор", t):
+        return "2 п/гр."
+    if "без" in t:
+        return ""
+    return clean(txt)
 
 
 def parse_day(html_text):
@@ -188,7 +215,7 @@ def parse_day(html_text):
     # walk() уже обходит в порядке документа
 
     result = {
-        "group": "", "dateText": "", "published": True,
+        "group": "", "dateText": "", "published": True, "baseMissing": False,
         "pairs": [], "consultations": [], "graf": [], "notices": [],
     }
     section = "head"
@@ -205,7 +232,9 @@ def parse_day(html_text):
                     if m:
                         result["group"] = result["group"] or clean(m.group(1))
                         result["dateText"] = result["dateText"] or clean(m.group(2))
-                elif "основное расписание отсутствует" not in low:
+                elif "основное расписание отсутствует" in low:
+                    result["baseMissing"] = True
+                else:
                     result["notices"].append(msg)
             continue
 
@@ -240,6 +269,23 @@ def parse_day(html_text):
     return result
 
 
+def _collect_lines(scope):
+    """Тема / Д.з / примечание внутри области -> (node, kind, text)."""
+    out = []
+    for d in find_all(scope, lambda n: n.tag == "div" and n.has_class("d-none", "d-md-flex")):
+        for ln in find_all(d, lambda n: n.tag == "div" and n.has_class("pl-3")):
+            txt = ln.norm_text()
+            if not txt:
+                continue
+            if txt.startswith("Тема"):
+                out.append((ln, "topic", re.sub(r"^Тема:\s*", "", txt)))
+            elif re.match(r"^Д\.?\s*з", txt):
+                out.append((ln, "hw", re.sub(r"^Д\.?\s*з:?\s*", "", txt)))
+            else:
+                out.append((ln, "note", txt))
+    return out
+
+
 def _parse_pair_card(card):
     header = first(card, lambda n: n.tag == "div" and n.has_class("card-header"))
     if not header:
@@ -257,106 +303,121 @@ def _parse_pair_card(card):
 
     body = first(card, lambda n: n.tag == "div" and n.has_class("card-body"))
     rows = []
+    row_divs = []
     if body:
-        # каждый "d-flex flex-column" — вариант (подгруппа)
-        row_divs = find_all(body, lambda n: n.tag == "div" and n.has_class("d-flex", "flex-column"))
+        # каждый внешний "d-flex flex-column" — вариант (подгруппа);
+        # вложенные такие же контейнеры не считаем отдельными вариантами
+        row_divs = find_outermost(body, lambda n: n.tag == "div" and n.has_class("d-flex", "flex-column"))
         if not row_divs:
             row_divs = [body]
         for rd in row_divs:
-            row = {}
-            # подгруппа
-            sub_span = first(rd, lambda n: n.tag == "span" and n.has_class("rounded"))
-            subgroup = ""
-            if sub_span:
-                for s in find_all(sub_span, lambda n: n.tag == "span"):
-                    cl = s.classes()
-                    lbl = s.norm_text()
-                    if not lbl:
-                        continue
-                    if "subGroup1" in cl:
-                        subgroup = "1 подгруппа"
-                    elif "subGroup2" in cl:
-                        subgroup = "2 подгруппа"
-                    elif "nosubGroup" in cl:
-                        subgroup = "без подгруппы"
-                if not subgroup:
-                    tt = sub_span.norm_text()
-                    subgroup = tt
-            # аудитория
-            room, room_title = "", ""
-            for sp in find_all(rd, lambda n: n.tag == "span"):
-                t = sp.text()
-                if "ауд." in t:
-                    a = first(sp, lambda n: n.tag == "a")
-                    if a is not None and clean(a.text()):
-                        room = clean(a.text())
-                        room_title = clean(a.attrs.get("title", ""))
-                    else:
-                        inner = first(sp, lambda n: n.tag == "span" and n.has_class("h5"))
-                        room = clean(inner.text()) if inner else clean(t).replace("ауд.", "").strip()
-                        room = room.replace("ауд.", "").strip()
-                    break
-            # преподаватель(и)
-            teachers = []
-            for st in find_all(rd, lambda n: n.tag == "span" and n.has_class("Staff")):
-                teachers.append({"short": clean(st.text()), "full": clean(st.attrs.get("title", ""))})
-            full_span = None
-            for sp in find_all(rd, lambda n: n.tag == "span" and n.has_class("d-none", "d-md-block")):
-                if "преп." in sp.text():
-                    inner = first(sp, lambda n: n.tag == "span" and n.has_class("h5"))
-                    full_span = clean(inner.text()) if inner else clean(sp.text()).replace("преп.", "").strip()
-                    break
-            # дисциплина
-            subj, subj_full = "", ""
-            desk = first(rd, lambda n: n.tag == "div" and n.has_class("d-none", "d-md-block"))
-            if desk is not None:
-                b = first(desk, lambda n: n.tag == "b")
-                sm = first(desk, lambda n: n.tag == "small")
-                subj = clean(b.text()) if b else ""
-                subj_full = clean(sm.text()) if sm else ""
-            if not subj:
-                mob = first(rd, lambda n: n.tag == "div" and n.has_class("d-md-none") and "title" in n.attrs)
-                if mob is not None:
-                    subj = clean(mob.text())
-                    subj_full = clean(mob.attrs.get("title", ""))
-            if room or teachers or subj:
-                rows.append({
-                    "subgroup": subgroup,
-                    "room": room,
-                    "roomTitle": room_title,
-                    "teachers": teachers,
-                    "teacherFull": full_span or (teachers[0]["full"] if teachers else ""),
-                    "subject": subj,
-                    "subjectFull": subj_full,
-                })
+            row = _parse_variant(rd)
+            if row:
+                rows.append((rd, row))
 
-    # тема / домашка
+    # тема / домашка: что внутри варианта — к варианту, остальное — ко всей паре
     topics, hw, notes = [], [], []
-    for d in find_all(card, lambda n: n.tag == "div" and n.has_class("d-none", "d-md-flex")):
-        for ln in find_all(d, lambda n: n.tag == "div" and n.has_class("pl-3")):
-            txt = ln.norm_text()
-            if not txt:
-                continue
-            if txt.startswith("Тема"):
-                topics.append(re.sub(r"^Тема:\s*", "", txt))
-            elif re.match(r"^Д\.?\s*з", txt):
-                hw.append(re.sub(r"^Д\.?\s*з:\s*", "", txt))
-            else:
-                notes.append(txt)
+    owners = {id(rd): row for rd, row in rows}
+    for node, kind, txt in _collect_lines(card):
+        target = None
+        for anc in node.ancestors():
+            if id(anc) in owners:
+                target = owners[id(anc)]
+                break
+        bucket = target if target is not None else None
+        if bucket is None:
+            (topics if kind == "topic" else hw if kind == "hw" else notes).append(txt)
+        else:
+            key = "topics" if kind == "topic" else "homework" if kind == "hw" else "notes"
+            bucket[key].append(txt)
 
     changed = bool(find_all(card, lambda n: "changesPair" in n.classes()))
-    if not rows:
+    variants = [row for _rd, row in rows]
+    if not variants:
         return None
     return {
         "numeral": numeral,
         "start": t_start,
         "end": t_end,
-        "variant": rows[0] if len(rows) == 1 else None,
-        "variants": rows,
+        "variants": variants,
         "topics": topics,
         "homework": hw,
         "notes": notes,
         "changed": changed,
+    }
+
+
+def _parse_variant(rd):
+    # подгруппа
+    sub_span = first(rd, lambda n: n.tag == "span" and n.has_class("rounded"))
+    subgroup = ""
+    if sub_span:
+        for s in find_all(sub_span, lambda n: n.tag == "span"):
+            cl = s.classes()
+            lbl = s.norm_text()
+            if not lbl:
+                continue
+            if "subGroup1" in cl:
+                subgroup = "1 п/гр."
+            elif "subGroup2" in cl:
+                subgroup = "2 п/гр."
+            elif "nosubGroup" in cl:
+                subgroup = ""
+        if not subgroup:
+            subgroup = _norm_subgroup(sub_span.norm_text())
+    # аудитория
+    room, room_title = "", ""
+    for sp in find_all(rd, lambda n: n.tag == "span"):
+        t = sp.text()
+        if "ауд." in t:
+            a = first(sp, lambda n: n.tag == "a")
+            if a is not None and clean(a.text()):
+                room = clean(a.text())
+                room_title = clean(a.attrs.get("title", ""))
+            else:
+                inner = first(sp, lambda n: n.tag == "span" and n.has_class("h5"))
+                room = clean(inner.text()) if inner else clean(t).replace("ауд.", "").strip()
+                room = room.replace("ауд.", "").strip()
+            break
+    # преподаватель(и)
+    teachers = []
+    for st in find_all(rd, lambda n: n.tag == "span" and n.has_class("Staff")):
+        short = clean(st.text())
+        full = clean(st.attrs.get("title", ""))
+        if short or full:
+            teachers.append({"short": short, "full": full})
+    full_span = None
+    for sp in find_all(rd, lambda n: n.tag == "span" and n.has_class("d-none", "d-md-block")):
+        if "преп." in sp.text():
+            inner = first(sp, lambda n: n.tag == "span" and n.has_class("h5"))
+            full_span = clean(inner.text()) if inner else clean(sp.text()).replace("преп.", "").strip()
+            break
+    # дисциплина
+    subj, subj_full = "", ""
+    desk = first(rd, lambda n: n.tag == "div" and n.has_class("d-none", "d-md-block"))
+    if desk is not None:
+        b = first(desk, lambda n: n.tag == "b")
+        sm = first(desk, lambda n: n.tag == "small")
+        subj = clean(b.text()) if b else ""
+        subj_full = clean(sm.text()) if sm else ""
+    if not subj:
+        mob = first(rd, lambda n: n.tag == "div" and n.has_class("d-md-none") and "title" in n.attrs)
+        if mob is not None:
+            subj = clean(mob.text())
+            subj_full = clean(mob.attrs.get("title", ""))
+    if not (room or teachers or subj):
+        return None
+    return {
+        "subgroup": subgroup,
+        "room": room,
+        "roomTitle": room_title,
+        "teachers": teachers,
+        "teacherFull": full_span or (teachers[0]["full"] if teachers else ""),
+        "subject": subj,
+        "subjectFull": subj_full,
+        "topics": [],
+        "homework": [],
+        "notes": [],
     }
 
 
@@ -376,6 +437,9 @@ def _parse_graf_card(card):
             r = n
             rng = first(r, lambda x: x.tag == "div" and "bg-light" in x.classes())
             rng_txt = clean(rng.text()) if rng else last_range
+            if rng_txt:
+                parts = [p.strip() for p in rng_txt.split(",") if p.strip()]
+                rng_txt = ", ".join(dict.fromkeys(parts))
             m = re.search(r"(\d{1,2})\s*(недел\w*|дн\w*)", clean(r.text()))
             span = f"{m.group(1)} {m.group(2)}" if m else ""
             label_div = first(r, lambda x: x.tag == "div" and x.has_class("pl-2", "text-wrap"))
@@ -408,6 +472,23 @@ def _parse_graf_card(card):
 
 
 # ---------------------------------------------------------------- day payload builder
+def _dedup(seq):
+    return list(dict.fromkeys(x for x in seq if x))
+
+
+def _tidy_subject(subj, full):
+    """
+    Если короткое название — просто обрезок полного («Информатик» -> «Информатика»),
+    оставляем только полное. Коды вида «05.03/09.0» не трогаем.
+    """
+    if subj and full:
+        ns = re.sub(r"[\s.]+", "", subj.lower())
+        nf = re.sub(r"[\s.]+", "", full.lower())
+        if nf.startswith(ns) and 5 <= len(ns) and len(nf) <= len(ns) + 4:
+            return full, ""
+    return subj, full
+
+
 def build_day(group_id, date, html_text, bells):
     """
     html страницы дня -> готовый JSON-словарь для фронтенда.
@@ -420,44 +501,68 @@ def build_day(group_id, date, html_text, bells):
         if (not st or not en) and p["numeral"] in bells:
             st, en = bells[p["numeral"]]
         variants = p["variants"]
-        if len(variants) > 1:
-            variant = {
-                "room": " / ".join(sorted({v["room"] for v in variants if v["room"]})),
-                "roomTitle": "",
-                "teacherFull": " / ".join([v["teacherFull"] for v in variants if v["teacherFull"]]),
-                "teachers": [t for v in variants for t in v["teachers"]],
-                "subject": " / ".join(sorted({v["subject"] for v in variants if v["subject"]})),
-                "subjectFull": "",
-                "subgroup": "",
-            }
+
+        parts = []
+        for v in variants:
+            subj, full = _tidy_subject(v.get("subject", ""), v.get("subjectFull", ""))
+            parts.append({
+                "subgroup": v.get("subgroup", ""),
+                "room": v.get("room", ""),
+                "roomTitle": v.get("roomTitle", ""),
+                "subject": subj,
+                "subjectFull": full,
+                "teacher": v.get("teacherFull", "") or
+                           " / ".join(t["short"] for t in v.get("teachers", [])),
+                "teachers": v.get("teachers", []),
+                "topics": v.get("topics", []),
+                "homework": v.get("homework", []),
+                "notes": v.get("notes", []),
+            })
+
+        # плоские поля — для одной подгруппы и для обратной совместимости
+        if len(parts) == 1:
+            flat = parts[0]
+            subject, subject_full = flat["subject"], flat["subjectFull"]
+            room, room_title = flat["room"], flat["roomTitle"]
+            teacher, teachers = flat["teacher"], flat["teachers"]
+            subgroup = flat["subgroup"]
         else:
-            variant = variants[0]
-        # если короткое название — просто обрезок полного ("Информатик" -> "Информатика"),
-        # оставляем только полное
-        subj, full = variant.get("subject", ""), variant.get("subjectFull", "")
-        if subj and full:
-            ns = re.sub(r"[\s.]+", "", subj.lower())
-            nf = re.sub(r"[\s.]+", "", full.lower())
-            if nf.startswith(ns) and 5 <= len(ns) and len(nf) <= len(ns) + 4:
-                subj, full = full, ""
+            subject = " · ".join(dict.fromkeys(x["subject"] for x in parts if x["subject"]))
+            subject_full = ""
+            room = " · ".join(dict.fromkeys(x["room"] for x in parts if x["room"]))
+            room_title = ""
+            teacher = " · ".join(dict.fromkeys(x["teacher"] for x in parts if x["teacher"]))
+            teachers = [t for x in parts for t in x["teachers"]]
+            subgroup = ""
+
+        # у одиночной пары детали показываем прямо на карточке,
+        # у пары «по подгруппам» — внутри блока своей подгруппы
+        if len(parts) == 1:
+            topics = p["topics"] + parts[0]["topics"]
+            homework = p["homework"] + parts[0]["homework"]
+            notes = p["notes"] + parts[0]["notes"]
+        else:
+            topics, homework, notes = p["topics"], p["homework"], p["notes"]
+
         pairs.append({
             "n": p["numeral"],
             "num": roman_to_int(p["numeral"]),
             "start": st, "end": en,
-            "room": variant.get("room", ""),
-            "roomTitle": variant.get("roomTitle", ""),
-            "subject": subj,
-            "subjectFull": full,
-            "teacher": variant.get("teacherFull", "") or
-                       " / ".join(t["short"] for t in variant.get("teachers", [])),
-            "teachers": variant.get("teachers", []),
-            "subgroup": variant.get("subgroup", ""),
-            "topics": p["topics"],
-            "homework": p["homework"],
-            "notes": p["notes"],
+            "room": room,
+            "roomTitle": room_title,
+            "subject": subject,
+            "subjectFull": subject_full,
+            "teacher": teacher,
+            "teachers": teachers,
+            "subgroup": subgroup,
+            "topics": _dedup(topics),
+            "homework": _dedup(homework),
+            "notes": _dedup(notes),
             "changed": p["changed"],
-            "variants": len(variants),
+            "variants": len(parts),
+            "parts": parts if len(parts) > 1 else [],
         })
+    pairs.sort(key=lambda x: (x["num"] or 99, x["start"] or "99:99"))
     return {
         "ok": True,
         "groupId": int(group_id),
@@ -465,6 +570,7 @@ def build_day(group_id, date, html_text, bells):
         "date": date,
         "dateText": d["dateText"],
         "published": d["published"],
+        "baseMissing": d["baseMissing"],
         "pairs": pairs,
         "consultations": d["consultations"],
         "graf": d["graf"],
@@ -484,8 +590,6 @@ def parse_bells(html_text):
     dom = build_dom(html_text)
     out = []
     for row in find_all(dom, lambda n: n.tag == "div" and n.has_class("d-flex", "flex-row", "hoverable")):
-        rn = first(row, lambda n: n.tag == "div" and n.has_class("pair"))
-        ts = first(row, lambda n: n.tag == "div" and "text-nowrap" in n.classes() and "<sup>" not in str(n))
         raw = clean(row.text())
         m = re.match(r"([IVX]+)\s*пара\s*(\d{2})\s*(\d{2})\s*-\s*(\d{2})\s*(\d{2})", raw)
         if m:

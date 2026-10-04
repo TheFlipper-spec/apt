@@ -4,43 +4,69 @@
 Бот для GitHub Actions: собирает расписание almetpt.ru в статические JSON.
 
 Результат (папка docs/ — её и раздаёт GitHub Pages):
-  docs/index.html                     <- копия фронтенда (static/index.html)
+  docs/<всё из static/>                 <- фронтенд, манифест, сервис-воркер, иконки
   docs/.nojekyll
-  docs/data/groups.json               <- список групп
-  docs/data/bells.json                <- время пар
-  docs/data/meta.json                 <- когда собрано, за какие даты есть данные
-  docs/data/d/<groupId>/<date>.json   <- расписание группы на день
+  docs/data/groups.json                 <- список групп
+  docs/data/bells.json                  <- время пар
+  docs/data/meta.json                   <- когда собрано, за какие даты есть данные
+  docs/data/summary.json                <- компактный индекс «группа × дата → сколько пар»
+  docs/data/d/<groupId>/<date>.json     <- расписание группы на день
+  docs/data/x/<date>.json               <- все занятия дня (поиск преподавателя/аудитории)
 
 Запуск:
-  python3 fetch_all.py                     # даты: вчера .. +3 дня (МСК)
-  python3 fetch_all.py --days -2..3 --workers 4
+  python3 fetch_all.py                     # окно: вчера .. +3 дня плюс текущая и следующая недели
+  python3 fetch_all.py --days -2..5 --workers 6
+  python3 fetch_all.py --full              # игнорировать TTL, перекачать всё окно
+
+ВАЖНО про свежесть: возраст данных определяется полем ``fetchedAt`` внутри
+самого JSON-файла, а НЕ временем модификации файла. В CI ``actions/checkout``
+выставляет всем файлам mtime «сейчас», поэтому проверка по mtime приводила к
+тому, что ни один уже существующий день никогда не перезапрашивался.
 """
 import argparse
 import concurrent.futures as cf
+import gzip
+import io
 import json
 import os
 import re
+import shutil
 import sys
+import threading
 import time
+import urllib.error
 import urllib.request
-from datetime import datetime, timedelta
+from datetime import date as Date, datetime, timedelta
 from zoneinfo import ZoneInfo
 
 BASE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, BASE)
-import parser as P
+import parser as P  # noqa: E402
 
 SITE = "https://almetpt.ru"
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
       "(KHTML, like Gecko) Chrome/126.0 Safari/537.36")
 TZ = ZoneInfo("Europe/Moscow")
 
+# ----------------------------------------------------------------- TTL (сек)
+TTL_TODAY = 10 * 60          # сегодня — меняется чаще всего (замены, темы, Д/З)
+TTL_NEAR = 20 * 60           # ±3 дня вокруг сегодня
+TTL_FAR = 3 * 3600           # дальше по окну — расписание там обычно ещё не выложено
+TTL_SUNDAY = 12 * 3600       # воскресенья почти всегда пустые
+TTL_PAST = 12 * 3600         # прошлое без расписания — вдруг выложат задним числом
+TTL_SETTLED = 7 * 24 * 3600  # прошедший опубликованный день уже не изменится
+
+_print_lock = threading.Lock()
+
 
 def log(*a):
-    print(time.strftime("[%H:%M:%S]"), *a, flush=True)
+    with _print_lock:
+        print(time.strftime("[%H:%M:%S]"), *a, flush=True)
 
 
+# ----------------------------------------------------------------- сеть
 def http_get(url, timeout=25, retries=3):
+    """GET с повторами, gzip и понятным текстом ошибки."""
     err = None
     for attempt in range(1, retries + 1):
         try:
@@ -48,169 +74,424 @@ def http_get(url, timeout=25, retries=3):
                 "User-Agent": UA,
                 "Accept": "text/html,application/xhtml+xml",
                 "Accept-Language": "ru,en;q=0.8",
+                "Accept-Encoding": "gzip",
+                "Connection": "close",
             })
             with urllib.request.urlopen(req, timeout=timeout) as r:
-                return r.read().decode("utf-8", "replace")
-        except Exception as e:
+                raw = r.read()
+                if (r.headers.get("Content-Encoding") or "").lower() == "gzip":
+                    raw = gzip.GzipFile(fileobj=io.BytesIO(raw)).read()
+            return raw.decode("utf-8", "replace")
+        except urllib.error.HTTPError as e:
+            # 404/410 повторять бессмысленно
+            if e.code in (404, 410):
+                raise
             err = e
-            time.sleep(1.5 * attempt)
+        except Exception as e:                       # noqa: BLE001
+            err = e
+        if attempt < retries:
+            time.sleep(min(1.5 * attempt, 5))
     raise err
 
 
+# ----------------------------------------------------------------- файлы
 def wjson(path, obj):
     os.makedirs(os.path.dirname(path), exist_ok=True)
-    tmp = path + ".tmp"
+    tmp = f"{path}.{os.getpid()}.tmp"
     with open(tmp, "w", encoding="utf-8") as f:
-        json.dump(obj, f, ensure_ascii=False, separators=(",", ":"))
+        json.dump(obj, f, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
     os.replace(tmp, path)
+
+
+def write_if_changed(path, obj):
+    """Перезаписывает файл только при реальном изменении — бережём историю git."""
+    new = json.dumps(obj, ensure_ascii=False, separators=(",", ":"), sort_keys=True)
+    try:
+        with open(path, encoding="utf-8") as f:
+            if f.read() == new:
+                return False
+    except OSError:
+        pass
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    tmp = f"{path}.{os.getpid()}.tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        f.write(new)
+    os.replace(tmp, path)
+    return True
 
 
 def rjson(path):
     try:
         with open(path, encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except Exception:                                # noqa: BLE001
         return None
 
 
 def parse_days_arg(s):
-    m = re.fullmatch(r"(-?\d+)\.\.(\+?-?\d+)", s.strip())
+    m = re.fullmatch(r"\s*(-?\d+)\s*\.\.\s*(\+?-?\d+)\s*", s)
     if not m:
         raise SystemExit(f"Неверный формат --days: {s!r} (пример: -1..3)")
     return int(m.group(1)), int(m.group(2))
 
 
+# ----------------------------------------------------------------- даты
+def window_dates(today, d0, d1, weeks=2):
+    """
+    Окно сборки: явный диапазон --days плюс текущая и следующая календарные
+    недели целиком. Недели нужны, чтобы на зеркале работал обзор «Неделя»
+    и точки с количеством пар в полоске дней.
+    """
+    days = set()
+    for off in range(min(d0, d1), max(d0, d1) + 1):
+        days.add(today + timedelta(days=off))
+    monday = today - timedelta(days=today.weekday())
+    for w in range(max(1, weeks)):
+        for i in range(7):
+            days.add(monday + timedelta(days=w * 7 + i))
+    return sorted(days)
+
+
+def payload_key(data):
+    """Содержимое дня без служебных полей — чтобы не переписывать файл зря."""
+    if not data:
+        return None
+    skip = {"fetchedAt", "checkedAt", "recheckedAt", "source", "stale"}
+    return json.dumps({k: v for k, v in data.items() if k not in skip},
+                      ensure_ascii=False, sort_keys=True)
+
+
+def ttl_for(d: Date, today: Date, stored):
+    """Сколько секунд сохранённый файл считается свежим. 0 — качать обязательно."""
+    if not stored or not stored.get("fetchedAt"):
+        return 0
+    delta = (d - today).days
+    if delta < 0:
+        published = bool(stored.get("published")) and bool(stored.get("pairs"))
+        return TTL_SETTLED if published else TTL_PAST
+    if d.weekday() == 6 and delta != 0:              # воскресенье
+        return TTL_SUNDAY
+    if delta == 0:
+        return TTL_TODAY
+    if delta <= 3:
+        return TTL_NEAR
+    return TTL_FAR
+
+
+# ----------------------------------------------------------------- главное
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--days", default="-1..3", help="диапазон дат от сегодня, напр. -1..3")
-    ap.add_argument("--workers", type=int, default=4)
+    ap.add_argument("--weeks", type=int, default=2,
+                    help="сколько календарных недель держать целиком (с текущей)")
+    ap.add_argument("--workers", type=int, default=6)
     ap.add_argument("--out", default=os.path.join(BASE, "docs"))
+    ap.add_argument("--full", action="store_true", help="игнорировать TTL")
+    ap.add_argument("--offline", action="store_true",
+                    help="без сети: только скопировать static/ и пересобрать индексы")
+    ap.add_argument("--keep-days", type=int, default=14, help="через сколько дней удалять прошлое")
     args = ap.parse_args()
     d0, d1 = parse_days_arg(args.days)
 
     today = datetime.now(TZ).date()
-    dates = []
-    for off in range(min(d0, d1), max(d0, d1) + 1):
-        d = today + timedelta(days=off)
-        if d.weekday() != 6:                     # воскресенья пропускаем
-            dates.append(d.isoformat())
-    log("Даты сборки:", ", ".join(dates))
+    dates = [d.isoformat() for d in window_dates(today, d0, d1, args.weeks)]
+    log("Окно сборки:", dates[0], "…", dates[-1], f"({len(dates)} дней)")
 
     out = args.out
-    os.makedirs(out, exist_ok=True)
     data_dir = os.path.join(out, "data")
     os.makedirs(data_dir, exist_ok=True)
 
-    # ------------------------------------------------ 1. фронтенд -> docs/index.html
-    with open(os.path.join(BASE, "static", "index.html"), encoding="utf-8") as f:
-        html = f.read()
-    with open(os.path.join(out, "index.html"), "w", encoding="utf-8") as f:
-        f.write(html)
+    # ------------------------------------------------ 1. static/ -> docs/
+    copy_static(os.path.join(BASE, "static"), out)
     open(os.path.join(out, ".nojekyll"), "w").close()
 
-    # ------------------------------------------------ 2. группы + звонки
-    groups = None
-    try:
-        groups = P.parse_groups(http_get(SITE + "/2020/site/schedulegroups"))
-        log(f"Групп получено: {len(groups)}")
-    except Exception as e:
-        log("!! не удалось получить список групп:", e)
-    if not groups:
-        saved = rjson(os.path.join(data_dir, "groups.json"))
-        if not saved or not saved.get("groups"):
-            saved = rjson(os.path.join(BASE, "data", "groups.json"))
-        if not saved or not saved.get("groups"):
-            raise SystemExit("Нет списка групп ни с сайта, ни из кэша — стоп.")
-        groups = saved["groups"]
-        log(f"Взяли группы из кэша: {len(groups)}")
-    wjson(os.path.join(data_dir, "groups.json"),
-          {"ok": True, "groups": groups, "fetchedAt": int(time.time()), "source": "bot"})
+    if args.offline:
+        groups = (rjson(os.path.join(data_dir, "groups.json")) or {}).get("groups") or []
+        if not groups:
+            raise SystemExit("Нет docs/data/groups.json — офлайн-сборка невозможна.")
+        log(f"Офлайн-сборка: групп {len(groups)}, сеть не используется")
+        summary, lessons_per_date = build_indexes(data_dir, groups, dates)
+        write_if_changed(os.path.join(data_dir, "summary.json"), summary)
+        for date_s, lessons in lessons_per_date.items():
+            write_if_changed(os.path.join(data_dir, "x", f"{date_s}.json"),
+                             {"ok": True, "date": date_s, "lessons": lessons})
+        meta = rjson(os.path.join(data_dir, "meta.json")) or {}
+        meta.update({"ok": True, "today": today.isoformat(), "dates": dates,
+                     "groups": len(groups)})
+        wjson(os.path.join(data_dir, "meta.json"), meta)
+        log("Готово (офлайн).")
+        return
 
-    try:
-        bells = P.parse_bells(http_get(SITE + "/2020/site/schedulecalls"))
-    except Exception as e:
-        log("!! звонки не получены, fallback:", e)
-        saved = rjson(os.path.join(data_dir, "bells.json")) or \
-                rjson(os.path.join(BASE, "data", "bells.json")) or {}
-        bells = saved.get("bells") or P.BELLS_FALLBACK
-    bells = [tuple(map(str, b)) for b in bells]
-    wjson(os.path.join(data_dir, "bells.json"),
-          {"ok": True, "bells": bells, "fetchedAt": int(time.time()), "source": "bot"})
+    # ------------------------------------------------ 2. группы
+    groups = load_groups(data_dir)
+    write_if_changed(os.path.join(data_dir, "groups.json"),
+                     {"ok": True, "groups": groups, "source": "bot"})
+
+    # ------------------------------------------------ 3. звонки
+    bells = load_bells(data_dir)
+    write_if_changed(os.path.join(data_dir, "bells.json"),
+                     {"ok": True, "bells": bells, "source": "bot"})
     bell_map = {r: (s, e) for r, s, e in bells}
 
-    # ------------------------------------------------ 3. расписание по группам и датам
-    tasks = [(g["id"], date) for date in dates for g in groups]
-    log(f"Всего загрузок: {len(tasks)} (групп {len(groups)} × дней {len(dates)})")
+    # ------------------------------------------------ 4. дни
+    tasks = [(g["id"], d) for d in dates for g in groups]
+    log(f"Кандидатов: {len(tasks)} (групп {len(groups)} × дней {len(dates)})")
 
-    ok = fail = skipped = 0
+    # Журнал проверок живёт отдельным файлом: если писать время проверки внутрь
+    # каждого дня, то каждый прогон менял бы сотни файлов и репозиторий рос бы
+    # на пустом месте. Сами дни переписываются только при реальном изменении.
+    log_path = os.path.join(data_dir, "checked.json")
+    checked = (rjson(log_path) or {}).get("at") or {}
+    checked_new = {}
+
+    counters = {"ok": 0, "same": 0, "skip": 0, "fail": 0}
     failed = []
+    cnt_lock = threading.Lock()
 
     def load(task):
-        nonlocal skipped
-        gid, date = task
-        path = os.path.join(data_dir, "d", str(gid), f"{date}.json")
-        # если файл свежий (<25 мин) — пропускаем (экономим запросы при частых прогонах)
-        try:
-            if time.time() - os.path.getmtime(path) < 25 * 60:
-                skipped += 1
-                return True
-        except OSError:
-            pass
-        url = f"{SITE}/2020/site/schedule/group/{gid}/{date}"
+        gid, date_s = task
+        key = f"{gid}/{date_s}"
+        path = os.path.join(data_dir, "d", str(gid), f"{date_s}.json")
+        stored = rjson(path)
+        last_check = max(int(checked.get(key, 0) or 0),
+                         int((stored or {}).get("fetchedAt", 0) or 0))
+
+        if not args.full:
+            ttl = ttl_for(Date.fromisoformat(date_s), today, stored)
+            if ttl and time.time() - last_check < ttl:
+                with cnt_lock:
+                    counters["skip"] += 1
+                    checked_new[key] = last_check
+                return
+
+        url = f"{SITE}/2020/site/schedule/group/{gid}/{date_s}"
         html_txt = http_get(url)
         if "Страничка не найдена" in html_txt:
-            raise ValueError("404")
-        data = P.build_day(gid, date, html_txt, bell_map)
-        data["fetchedAt"] = int(time.time())
+            raise ValueError("страница не найдена (404)")
+
+        data = P.build_day(gid, date_s, html_txt, bell_map)
+
+        # страховка от «мусорного» ответа (заглушка провайдера, капча, обрезанный HTML):
+        # на настоящей странице всегда есть либо название группы, либо пары.
+        if not data.get("group") and not data.get("pairs"):
+            raise ValueError("ответ не похож на страницу расписания")
+
+        # прошедший день не должен «терять» уже сохранённое расписание
+        if (stored and stored.get("pairs") and not data.get("pairs")
+                and Date.fromisoformat(date_s) < today):
+            with cnt_lock:
+                counters["same"] += 1
+                checked_new[key] = int(time.time())
+            return
+
         data["source"] = "bot"
+        data["groupName"] = next((g["name"] for g in groups if g["id"] == gid), "") \
+            or data.get("group", "")
+        now_ts = int(time.time())
+
+        if stored and payload_key(stored) == payload_key(data):
+            with cnt_lock:
+                counters["same"] += 1
+                checked_new[key] = now_ts
+            return
+
+        data["fetchedAt"] = now_ts
         wjson(path, data)
-        return True
+        with cnt_lock:
+            counters["ok"] += 1
+            checked_new[key] = now_ts
 
     t0 = time.time()
-    with cf.ThreadPoolExecutor(max_workers=args.workers) as ex:
+    with cf.ThreadPoolExecutor(max_workers=max(1, args.workers)) as ex:
         futs = {ex.submit(load, t): t for t in tasks}
-        for i, fut in enumerate(cf.as_completed(futs), 1):
+        done = 0
+        for fut in cf.as_completed(futs):
             t = futs[fut]
+            done += 1
             try:
                 fut.result()
-                ok += 1
-            except Exception as e:
-                fail += 1
-                failed.append((t, str(e)))
-                log(f"!! {t}: {e}")
-            if i % 50 == 0:
-                log(f"прогресс: {i}/{len(tasks)} (ok {ok}, fail {fail})")
-    log(f"Готово за {time.time()-t0:.0f}s: ok {ok}, пропущено свежих {skipped}, fail {fail}")
+            except Exception as e:                   # noqa: BLE001
+                with cnt_lock:
+                    counters["fail"] += 1
+                failed.append((t, f"{e.__class__.__name__}: {e}"))
+                if len(failed) <= 15:
+                    log(f"!! {t[0]} {t[1]}: {e}")
+            if done % 200 == 0:
+                log(f"прогресс {done}/{len(tasks)} "
+                    f"(обновлено {counters['ok']}, без изменений {counters['same']}, "
+                    f"из кэша {counters['skip']}, ошибок {counters['fail']})")
+    log(f"Дни готовы за {time.time() - t0:.0f}s: обновлено {counters['ok']}, "
+        f"без изменений {counters['same']}, из кэша {counters['skip']}, "
+        f"ошибок {counters['fail']}")
+    wjson(log_path, {"at": checked_new})
 
-    # не падаем целиком из-за частичных ошибок — старые файлы остаются
-    # ------------------------------------------------ 4. чистка устаревших файлов
-    keep_min = (today + timedelta(days=-7)).isoformat()
-    removed = 0
-    droot = os.path.join(data_dir, "d")
-    for gid_dir in list(os.listdir(droot)) if os.path.isdir(droot) else []:
-        gdir = os.path.join(droot, gid_dir)
-        for fn in list(os.listdir(gdir)):
-            m = re.fullmatch(r"(\d{4}-\d{2}-\d{2})\.json", fn)
-            if m and m.group(1) < keep_min:
-                os.remove(os.path.join(gdir, fn))
-                removed += 1
-        if not os.listdir(gdir):
-            os.rmdir(gdir)
+    # ------------------------------------------------ 5. чистка устаревшего
+    removed = cleanup(data_dir, today, args.keep_days, dates)
     if removed:
-        log(f"Удалено устаревших: {removed}")
+        log(f"Удалено устаревших файлов: {removed}")
 
-    # ------------------------------------------------ 5. meta.json
+    # ------------------------------------------------ 6. индексы
+    summary, lessons_per_date = build_indexes(data_dir, groups, dates)
+    write_if_changed(os.path.join(data_dir, "summary.json"), summary)
+    for date_s, lessons in lessons_per_date.items():
+        write_if_changed(os.path.join(data_dir, "x", f"{date_s}.json"),
+                         {"ok": True, "date": date_s, "lessons": lessons})
+    log(f"Индексы: summary.json + {len(lessons_per_date)} дневных срезов")
+
+    # ------------------------------------------------ 7. meta
+    published_days = sum(1 for d in dates if summary["counts"].get(d, {}).get("published"))
     wjson(os.path.join(data_dir, "meta.json"), {
         "ok": True,
         "generatedAt": int(time.time()),
         "generatedAtHuman": datetime.now(TZ).strftime("%d.%m.%Y %H:%M МСК"),
+        "today": today.isoformat(),
         "dates": dates,
         "groups": len(groups),
-        "failed": len(failed),
+        "fetched": counters["ok"],
+        "cached": counters["skip"],
+        "failed": counters["fail"],
+        "publishedDays": published_days,
     })
     log("meta.json записан. Всё.")
     if failed:
-        log("неудачные:", failed[:10])
+        log("примеры неудачных:", failed[:5])
+
+
+# ----------------------------------------------------------------- шаги
+def copy_static(src, dst):
+    if not os.path.isdir(src):
+        return
+    n = 0
+    for root, _dirs, files in os.walk(src):
+        rel = os.path.relpath(root, src)
+        target = dst if rel == "." else os.path.join(dst, rel)
+        os.makedirs(target, exist_ok=True)
+        for fn in files:
+            shutil.copy2(os.path.join(root, fn), os.path.join(target, fn))
+            n += 1
+    log(f"{os.path.basename(src)}/ -> {os.path.basename(dst)}/: {n} файл(ов)")
+
+
+def load_groups(data_dir):
+    """Список групп с сайта, объединённый с сохранённым.
+
+    Сайт периодически отдаёт неполный список (в истории репозитория было
+    82 → 91 → 74 группы). Если просто перезаписывать файл, у студентов
+    пропадают группы, поэтому берём объединение.
+    """
+    fresh = []
+    try:
+        fresh = P.parse_groups(http_get(SITE + "/2020/site/schedulegroups"))
+        log(f"Групп получено с сайта: {len(fresh)}")
+    except Exception as e:                           # noqa: BLE001
+        log("!! список групп не получен:", e)
+
+    saved = (rjson(os.path.join(data_dir, "groups.json"))
+             or rjson(os.path.join(BASE, "data", "groups.json")) or {})
+    old = saved.get("groups") or []
+
+    merged = {}
+    for g in old:
+        if g.get("id"):
+            merged[int(g["id"])] = dict(g)
+    for g in fresh:
+        merged[int(g["id"])] = dict(g)                # свежие данные приоритетнее
+
+    if not merged:
+        raise SystemExit("Нет списка групп ни с сайта, ни из кэша — стоп.")
+    if fresh and len(fresh) < len(merged):
+        log(f"   (к {len(fresh)} с сайта добавлено {len(merged) - len(fresh)} из кэша)")
+
+    return sorted(merged.values(), key=lambda g: (g.get("course") or 9, g.get("name") or ""))
+
+
+def load_bells(data_dir):
+    try:
+        bells = P.parse_bells(http_get(SITE + "/2020/site/schedulecalls"))
+    except Exception as e:                           # noqa: BLE001
+        log("!! звонки не получены, берём сохранённые:", e)
+        saved = (rjson(os.path.join(data_dir, "bells.json"))
+                 or rjson(os.path.join(BASE, "data", "bells.json")) or {})
+        bells = saved.get("bells") or P.BELLS_FALLBACK
+    return [[str(x) for x in b] for b in bells]
+
+
+def cleanup(data_dir, today, keep_days, dates):
+    """Удаляет дни старше keep_days и дневные срезы вне окна."""
+    removed = 0
+    keep_min = (today - timedelta(days=max(1, keep_days))).isoformat()
+    droot = os.path.join(data_dir, "d")
+    if os.path.isdir(droot):
+        for gid_dir in sorted(os.listdir(droot)):
+            gdir = os.path.join(droot, gid_dir)
+            if not os.path.isdir(gdir):
+                continue
+            for fn in sorted(os.listdir(gdir)):
+                m = re.fullmatch(r"(\d{4}-\d{2}-\d{2})\.json", fn)
+                if m and m.group(1) < keep_min:
+                    os.remove(os.path.join(gdir, fn))
+                    removed += 1
+            if not os.listdir(gdir):
+                os.rmdir(gdir)
+    xroot = os.path.join(data_dir, "x")
+    if os.path.isdir(xroot):
+        keep = set(dates)
+        for fn in sorted(os.listdir(xroot)):
+            m = re.fullmatch(r"(\d{4}-\d{2}-\d{2})\.json", fn)
+            if m and m.group(1) not in keep:
+                os.remove(os.path.join(xroot, fn))
+                removed += 1
+    return removed
+
+
+def build_indexes(data_dir, groups, dates):
+    """
+    summary.json  — {"g": {gid: {date: [пар, опубликовано, есть замены, начало, конец]}}}
+    x/<date>.json — плоский список всех занятий дня (для поиска преподавателя/аудитории)
+    """
+    names = {int(g["id"]): g.get("name", "") for g in groups}
+    g_index, counts = {}, {}
+    lessons_per_date = {d: [] for d in dates}
+
+    for gid in sorted(names):
+        row = {}
+        for date_s in dates:
+            d = rjson(os.path.join(data_dir, "d", str(gid), f"{date_s}.json"))
+            if not d:
+                continue
+            pairs = d.get("pairs") or []
+            row[date_s] = [
+                len(pairs),
+                1 if d.get("published") else 0,
+                1 if any(p.get("changed") for p in pairs) else 0,
+                (pairs[0].get("start") if pairs else "") or "",
+                (pairs[-1].get("end") if pairs else "") or "",
+            ]
+            c = counts.setdefault(date_s, {"groups": 0, "withPairs": 0, "published": 0})
+            c["groups"] += 1
+            c["withPairs"] += 1 if pairs else 0
+            c["published"] += 1 if d.get("published") else 0
+            for p in pairs:
+                lessons_per_date[date_s].append({
+                    "g": gid, "gn": names.get(gid, ""),
+                    "n": p.get("n", ""), "s": p.get("start", ""), "e": p.get("end", ""),
+                    "subj": p.get("subject", "") or p.get("subjectFull", ""),
+                    "t": p.get("teacher", ""),
+                    "r": p.get("room", ""),
+                    "sg": p.get("subgroup", ""),
+                    "ch": 1 if p.get("changed") else 0,
+                })
+        if row:
+            g_index[str(gid)] = row
+
+    summary = {
+        "ok": True,
+        "dates": dates,
+        "names": {str(k): v for k, v in names.items()},
+        "g": g_index,
+        "counts": counts,
+    }
+    return summary, lessons_per_date
 
 
 if __name__ == "__main__":
