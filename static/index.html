@@ -90,35 +90,33 @@ html[data-theme=dark] .blob{opacity:.3}
   background-size:26px 26px}
 
 /* ======================================================= layout */
-.wrap{max-width:var(--maxw);margin:0 auto;padding:0 16px calc(90px + var(--safe-b))}
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 18px calc(90px + var(--safe-b))}
 
-/* --- на широких экранах: боковая колонка + контент, чтобы не пустовали поля --- */
+/* Одна колонка во всю ширину: расписание — главный блок страницы и
+   занимает её целиком. Управление (дата, неделя, режим, группа) стоит
+   над ним компактной строкой, а не отъедает ширину сбоку. */
 .layout{display:flex;flex-direction:column}
 .side{display:contents}
 .hero{order:1}.week{order:2}.tabs{order:3}.sel-panel{order:4}#view{order:5}
 
-@media (min-width:1000px){
-  .layout{display:grid;align-items:start;gap:0 22px;
-    grid-template-columns:clamp(258px,23vw,320px) minmax(0,1fr);
-    grid-template-areas:"side hero" "side view"}
-  .side{display:flex;flex-direction:column;gap:12px;grid-area:side;
-    position:sticky;top:calc(var(--top-h) + 12px)}
-  .hero{grid-area:hero}#view{grid-area:view}
-  .sel-panel,.tabs,.week{margin:0}
-  .week{gap:5px}
-  .week .day-b{padding:9px 0}
-}
-/* очень широкий экран: расписание слева, справочные карточки справа */
-@media (min-width:1360px){
-  .view.has-aside{display:grid;gap:0 20px;align-items:start;
-    grid-template-columns:minmax(0,1fr) clamp(280px,22vw,340px);
-    grid-template-areas:"strip strip" "nowbar aside" "time aside"}
-  .view.has-aside>.strip{grid-area:strip}
-  .view.has-aside>#nowbarWrap{grid-area:nowbar}
-  .view.has-aside>.timeline{grid-area:time}
-  .view.has-aside>.day-aside{grid-area:aside;position:sticky;
-    top:calc(var(--top-h) + 12px);display:flex;flex-direction:column;gap:12px}
-  .view.has-aside>.day-aside .info-card{margin:0}
+@media (min-width:860px){
+  /* панель управления в одну строку — расписанию достаётся вся ширина */
+  .side{display:grid;order:2;gap:10px;align-items:center;margin:14px 0;
+    grid-template-columns:minmax(0,1fr) auto auto}
+  /* дни недели растянуты на всю строку, но не вырастают в огромные плитки */
+  .week{margin:0;gap:6px}
+  .week .day-b{aspect-ratio:auto;height:58px;gap:1px}
+  .tabs{margin:0;width:auto;flex:none}
+  .tabs button{padding:0 16px;flex:none}
+  .sel-panel{margin:0;position:relative;z-index:30;width:clamp(240px,24vw,320px);
+    overflow:visible}
+  /* выпадающий список групп не раздвигает строку управления */
+  .sel-panel .sel-body{position:absolute;left:auto;right:0;top:calc(100% + 7px);
+    width:min(420px,88vw);background:var(--card);border-radius:var(--r-lg);
+    overflow:hidden}
+  .sel-panel.open .sel-body{border:1px solid var(--line);box-shadow:var(--sh-2)}
+  .sel-panel.open .sel-inner{border-top:0}
+  .hero{padding-top:26px}
 }
 
 /* ------------------------------------------------ top bar */
@@ -261,6 +259,12 @@ html[data-theme=dark] .blob{opacity:.3}
 .sel-panel.open .sel-body{grid-template-rows:1fr}
 .sel-body-in{overflow:hidden}
 .sel-inner{padding:2px 14px 14px;border-top:1px solid var(--line)}
+.sub-pick{margin-top:14px;padding-top:13px;border-top:1px dashed var(--line)}
+.sub-pick .seg{margin-top:7px}
+.sub-pick .sel-hint{margin-top:7px}
+.sub-badge{display:inline-flex;align-items:center;gap:4px;margin-left:7px;
+  padding:2px 7px;border-radius:7px;font-size:10.5px;font-weight:800;
+  background:var(--acc-soft);color:var(--acc);vertical-align:middle}
 .courses{display:flex;gap:6px;position:relative;margin-top:12px;overflow-x:auto;
   scrollbar-width:none;padding-bottom:2px}
 .courses::-webkit-scrollbar{display:none}
@@ -306,6 +310,9 @@ html[data-theme=dark] .blob{opacity:.3}
 
 /* ------------------------------------------------ summary chips */
 .strip{display:flex;gap:7px;flex-wrap:wrap;margin-top:16px}
+.day-aside{margin-top:14px;display:grid;gap:12px;
+  grid-template-columns:repeat(auto-fit,minmax(340px,1fr));align-items:start}
+.day-aside .info-card{margin:0}
 .chip{display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border-radius:12px;
   background:var(--card);border:1px solid var(--line);font-size:12.5px;font-weight:700;
   color:var(--ink-2);box-shadow:var(--sh-1);animation:rise .45s var(--spring) both}
@@ -387,10 +394,8 @@ html[data-theme=dark] .blob{opacity:.3}
 .pc-chip.changed{background:var(--warn-soft);color:var(--warn)}
 .pc-chip.changed svg{stroke:var(--warn)}
 /* аватар преподавателя */
-.ava{width:26px;height:26px;border-radius:50%;flex:none;position:relative;
-  display:grid;place-items:center;overflow:hidden;
-  background:var(--acc-soft);color:var(--acc);
-  font-size:9.5px;font-weight:800;letter-spacing:.02em;
+.ava{width:30px;height:30px;border-radius:50%;flex:none;position:relative;
+  overflow:hidden;background:var(--bg-soft);
   box-shadow:0 0 0 1.5px var(--card),0 0 0 2.5px var(--line)}
 /* фото на сайте техникума портретные 300x400 — центр кадра приходится на
    грудь, поэтому кружок смещаем к лицу */
@@ -411,7 +416,11 @@ html[data-theme=dark] .blob{opacity:.3}
 .pc-teacher svg{width:14px;height:14px;stroke:var(--ink-3);flex:none}
 .pc-teacher span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 /* подгруппы */
-.subs{margin-top:11px;display:flex;flex-direction:column;gap:9px}
+/* На широком экране подгруппы встают рядом — так ширина работает на дело,
+   а не растягивает пустую карточку. */
+.subs{margin-top:11px;display:grid;gap:9px;
+  grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+.subs.one{grid-template-columns:minmax(0,1fr)}
 .sub-card{border:1px solid var(--line);border-radius:14px;padding:11px 12px;background:var(--card-2)}
 .sub-card .sh{display:flex;align-items:center;gap:8px;margin-bottom:7px}
 .sub-tag{font-size:10.5px;font-weight:800;letter-spacing:.06em;text-transform:uppercase;
@@ -795,6 +804,15 @@ kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;fon
         <button class="clear" id="searchClear" aria-label="Очистить" hidden><svg><use href="#i-x"/></svg></button>
       </div>
       <div class="groups" id="groupsGrid" role="group" aria-label="Группы"></div>
+      <div class="sub-pick">
+        <div class="fav-lbl">Моя подгруппа</div>
+        <div class="seg" id="subPick" role="group" aria-label="Подгруппа">
+          <button data-sub="0" aria-pressed="true">Обе</button>
+          <button data-sub="1" aria-pressed="false">1 п/гр.</button>
+          <button data-sub="2" aria-pressed="false">2 п/гр.</button>
+        </div>
+        <div class="sel-hint">Выберите свою — занятия чужой подгруппы пропадут из расписания</div>
+      </div>
       <div class="sel-hint">Долгое нажатие или <kbd>Shift</kbd>+клик — добавить в избранные</div>
     </div></div></div>
   </section>
@@ -874,6 +892,8 @@ kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;fon
       <div class="kbd-row"><kbd>W</kbd><span>Переключить день / неделю</span></div>
       <div class="kbd-row"><kbd>G</kbd><span>Выбор группы</span></div>
       <div class="kbd-row"><kbd>F</kbd><span>Поиск преподавателя или аудитории</span></div>
+      <div class="kbd-row"><kbd>1</kbd><kbd>2</kbd><span>Показывать только свою подгруппу</span></div>
+      <div class="kbd-row"><kbd>0</kbd><span>Показывать обе подгруппы</span></div>
       <div class="kbd-row"><kbd>R</kbd><span>Обновить расписание</span></div>
       <div class="kbd-row"><kbd>D</kbd><span>Светлая / тёмная тема</span></div>
       <div class="kbd-row"><kbd>E</kbd><span>Выгрузить в календарь (.ics)</span></div>
@@ -896,7 +916,7 @@ const $  = s => document.querySelector(s);
 const $$ = s => Array.from(document.querySelectorAll(s));
 
 const LS = {theme:"apt.theme", course:"apt.course", group:"apt.group",
-            gname:"apt.gname", fav:"apt.fav", mode:"apt.mode"};
+            gname:"apt.gname", fav:"apt.fav", mode:"apt.mode", sub:"apt.subgroup"};
 
 /* ============================================================ время по Москве
    Расписание техникума живёт в Europe/Moscow. Раньше всё считалось по часам
@@ -988,6 +1008,8 @@ const state = {
   slideDir: 1,
   staticMode: true,
   meta: null, summary: null, teachers: null,
+  sub: (localStorage.getItem(LS.sub) === "1" || localStorage.getItem(LS.sub) === "2")
+       ? +localStorage.getItem(LS.sub) : 0,          // 0 — показывать обе подгруппы
   reqId: 0, abort: null,
   offline: !navigator.onLine,
 };
@@ -1181,6 +1203,7 @@ document.addEventListener("keydown", e => {
   if(k === "t" || k === "е"){ $("#btnToday").click(); return; }
   if(k === "w" || k === "ц"){ setMode(state.mode === "day" ? "week" : "day"); return; }
   if(k === "g" || k === "п"){ toggleSel(true); $("#searchInput").focus(); e.preventDefault(); return; }
+  if(e.key === "1" || e.key === "2" || e.key === "0"){ setSub(e.key); return; }
   if(k === "f" || k === "а" || e.key === "/"){ openFind(); e.preventDefault(); return; }
   if(k === "r" || k === "к"){ reload(true); return; }
   if(k === "d" || k === "в"){ toggleTheme(); return; }
@@ -1314,6 +1337,10 @@ function bindGroupPick(root){
     selectGroup(+b.dataset.id, b.dataset.name);
   });
 }
+$("#subPick").addEventListener("click", e => {
+  const b = e.target.closest("[data-sub]"); if(!b) return;
+  setSub(b.dataset.sub);
+});
 bindGroupPick($("#groupsGrid"));
 bindGroupPick($("#favRow"));
 
@@ -1330,7 +1357,8 @@ function updateSelHead(){
   const g = state.byId.get(+state.groupId);
   const name = g ? g.name : (state.groupName || "—");
   $("#selBadge").textContent = name;
-  $("#selName").textContent = name;
+  $("#selName").innerHTML = esc(name) +
+    (state.sub ? `<span class="sub-badge">${state.sub} п/гр.</span>` : "");
   $("#selCourse").textContent = g && g.course
     ? `${ROMAN[g.course-1] || g.course} курс · нажмите, чтобы сменить`
     : "нажмите, чтобы выбрать группу";
@@ -1606,7 +1634,7 @@ function renderDay(){
   document.title = `${gname} · ${fmtHuman(state.date)} — Расписание АПТ`;
   const view = $("#view");
   view.style.setProperty("--slide", (state.slideDir > 0 ? "" : "-") + "22px");
-  const pairs = sortPairs(j.pairs);
+  const pairs = dayPairs(j);
   const isToday = state.date === todayISO();
 
   let html = "";
@@ -1692,7 +1720,7 @@ function renderDay(){
   }
   aside += grafCard(j);
   if(aside) html += `<div class="day-aside">${aside}</div>`;
-  view.innerHTML = `<div class="view${aside ? " has-aside" : ""}">${html}</div>`;
+  view.innerHTML = `<div class="view">${html}</div>`;
 
   applyUpdLine(j);
   updateNow();
@@ -1708,6 +1736,69 @@ function prefersReduced(){
    changesPair стоит на каждой паре. Отметка «замена» имеет смысл только тогда,
    когда заменена часть пар; если помечен весь день — это не замена, а способ
    публикации, и значок превращается в шум. */
+/* ============================================================ подгруппа
+   На сайте техникума подгруппа подписана как «1 п/гр.» / «2 п/гр.».
+   Если студент выбрал свою, чужие занятия не должны мешаться:
+   у пары с двумя подгруппами остаётся только своя половина, а пара,
+   которой у его подгруппы нет, из расписания убирается совсем. */
+function subNum(txt){
+  const m = String(txt || "").match(/(\d)\s*п\s*\/?\s*гр/i) || String(txt || "").match(/^\s*(\d)\s*$/);
+  return m ? +m[1] : 0;
+}
+function applySub(pairs){
+  const want = state.sub;
+  if(!want) return pairs;
+  const out = [];
+  for(const p of pairs){
+    const parts = p.parts || [];
+    if(parts.length > 1){
+      const mine = parts.filter(x => { const n = subNum(x.subgroup); return !n || n === want; });
+      if(!mine.length) continue;                 // этой пары у подгруппы нет
+      if(mine.length === parts.length){ out.push(p); continue; }
+      // осталась одна половина — показываем её как обычную пару
+      const v = mine[0];
+      out.push(Object.assign({}, p, {
+        parts: [], variants: 1,
+        subgroup: v.subgroup || p.subgroup,
+        room: v.room || "", roomTitle: v.roomTitle || "",
+        subject: v.subject || "", subjectFull: v.subjectFull || "",
+        teacher: v.teacher || "", teachers: v.teachers || [],
+        topics: (p.topics || []).concat(v.topics || []),
+        homework: (p.homework || []).concat(v.homework || []),
+        notes: (p.notes || []).concat(v.notes || []),
+      }));
+      continue;
+    }
+    const n = subNum(p.subgroup);
+    if(n && n !== want) continue;                // пара только для чужой подгруппы
+    out.push(p);
+  }
+  return out;
+}
+function dayPairs(j){
+  return applySub(sortPairs((j && j.pairs) || []));
+}
+function setSub(n){
+  state.sub = +n || 0;
+  if(state.sub) localStorage.setItem(LS.sub, String(state.sub));
+  else localStorage.removeItem(LS.sub);
+  renderSubPick();
+  updateSelHead();
+  memCache.clear();
+  if(state.mode === "week") renderWeek(); else if(state.data) renderDay();
+  toast(state.sub ? `Показываю ${state.sub}-ю подгруппу` : "Показываю обе подгруппы");
+}
+function renderSubPick(){
+  const box = $("#subPick"); if(!box) return;
+  box.querySelectorAll("button").forEach(b => {
+    const on = +b.dataset.sub === state.sub;
+    b.classList.toggle("on", on);
+    b.setAttribute("aria-pressed", String(on));
+  });
+  const lbl = $("#subLbl");
+  if(lbl) lbl.textContent = state.sub ? `${state.sub} п/гр.` : "обе";
+}
+
 function changeInfo(pairs, j){
   const n = pairs.filter(p => p.changed).length;
   const all = n > 0 && n === pairs.length;
@@ -1751,23 +1842,14 @@ function teacherRec(t){
     photo: base.photo || base.photoUrl || "",
   };
 }
-function initials(name){
-  const w = String(name || "").trim().split(/\s+/).filter(Boolean);
-  if(!w.length) return "?";
-  const a = w[0][0] || "";
-  const b = w.length > 1 ? (w[1][0] || "") : "";
-  return (a + b).toUpperCase();
-}
-/* Аватар: фото из зеркала, а если его нет или оно не загрузилось — инициалы.
-   Картинка появляется только после успешной загрузки, поэтому «битых»
-   иконок не бывает. */
+/* Аватар — это только фотография. Если её нет или она не загрузилась,
+   кружок убирается целиком: никаких букв вместо лица. */
 function avatar(rec, cls){
-  const ini = esc(initials(rec.full || rec.short));
-  const img = rec.photo
-    ? `<img src="${esc(dataUrl(rec.photo))}" alt="" loading="lazy" decoding="async"
-         onload="this.classList.add('on')" onerror="this.remove()">`
-    : "";
-  return `<span class="ava${cls ? " " + cls : ""}" aria-hidden="true">${ini}${img}</span>`;
+  if(!rec.photo) return "";
+  return `<span class="ava${cls ? " " + cls : ""}" aria-hidden="true">` +
+    `<img src="${esc(dataUrl(rec.photo))}" alt="" loading="lazy" decoding="async"` +
+    ` onload="this.classList.add('on')"` +
+    ` onerror="this.closest('.ava').remove()"></span>`;
 }
 function teacherList(list){
   const recs = (list || []).map(teacherRec).filter(r => r.full || r.short);
@@ -1920,7 +2002,7 @@ function renderWeek(){
   const hw = [];
   const days = dates.map(iso => {
     const d = state.week.get(iso);
-    const pairs = d ? sortPairs(d.pairs) : [];
+    const pairs = d ? dayPairs(d) : [];
     total += pairs.length;
     const nCh = pairs.filter(p => p.changed).length;
     const allChanged = nCh > 0 && nCh === pairs.length;   // весь день из таблицы замен
@@ -1992,7 +2074,7 @@ function pairState(p){
 function updateNow(){
   const j = state.data;
   if(!j || state.mode !== "day") return;
-  const pairs = sortPairs(j.pairs);
+  const pairs = dayPairs(j);
   if(!pairs.length) return;
   const isToday = state.date === todayISO();
 
@@ -2073,7 +2155,7 @@ setInterval(() => {
 /* ============================================================ домашка */
 function copyHomework(){
   const rows = [];
-  const push = (iso, pairs) => sortPairs(pairs).forEach(p =>
+  const push = (iso, pairs) => applySub(sortPairs(pairs)).forEach(p =>
     hwRows(p).forEach(r => rows.push(
       `${WD_SHORT[fromISO(iso).getDay()]} ${fmtShort(iso)} · ${hwLabel(r)}: ${r.text}`)));
   if(state.mode === "week" && state.week){ for(const [iso,d] of state.week) if(d) push(iso, d.pairs); }
@@ -2111,7 +2193,7 @@ function icsFold(line){
 }
 function dayEvents(iso, day){
   const out = [];
-  sortPairs(day && day.pairs).forEach(p => {
+  applySub(sortPairs(day && day.pairs)).forEach(p => {
     if(!p.start || !p.end) return;
     const parts = (p.parts && p.parts.length) ? p.parts : [{
       subgroup: p.subgroup, room: p.room, roomTitle: p.roomTitle,
@@ -2284,6 +2366,7 @@ async function boot(){
   if(h){ state.groupId = h.id; if(validISO(h.date)) state.date = h.date; }
   if(location.hash === "#today") state.date = todayISO();
   if(location.hash === "#week") state.mode = "week";
+  renderSubPick();
   if(state.groupName) updateSelHead();   // имя из localStorage — сразу, без ожидания
 
   const di = $("#dateInput");

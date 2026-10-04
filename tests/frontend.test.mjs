@@ -373,10 +373,10 @@ test("преподаватель показывается с аватаром, �
   const t = rows.map((r) => r.textContent).join(" ");
   assert.match(t, /Юрасов Данила Дмитриевич/, "полное ФИО из справочника");
   assert.match(t, /Преподаватель информационных технологий/, "должность");
-  // у Юрасова есть фото, у Усмановой нет — инициалы обязаны быть всегда
+  // у Юрасова есть фото, у Усмановой нет — буквы вместо лица не рисуем
   const avas = all(dom, ".tc-row .ava");
-  assert.ok(avas.every((a) => /^[А-ЯЁ]{2}$/.test(a.textContent.trim())), "инициалы во всех аватарах");
-  assert.ok(avas.some((a) => a.querySelector("img[src*='teachers/1100.jpg']")), "фото подставлено");
+  assert.equal(avas.length, 1, "кружок только там, где есть фотография");
+  assert.ok(avas[0].querySelector("img[src*='teachers/1100.jpg']"), "фото подставлено");
   dom.window.close();
 });
 
@@ -433,14 +433,31 @@ test("ссылка с датой по-прежнему открывает име
   dom.window.close();
 });
 
-test("боковая колонка и основной блок существуют в разметке", async () => {
+test("макет в одну колонку: расписание не зажато сбоку", async () => {
   const dom = await boot({ hash: "#/9001/2026-10-05" });
   const d = dom.window.document;
-  assert.ok(d.querySelector(".layout > .side"), "боковая колонка");
-  assert.ok(d.querySelector(".side #weekStrip"), "полоска недели в колонке");
-  assert.ok(d.querySelector(".side .sel-panel"), "выбор группы в колонке");
-  assert.ok(d.querySelector(".layout > #view"), "контент — соседний блок");
-  assert.ok(d.querySelector(".view.has-aside > .day-aside"), "справочные карточки вынесены вбок");
+  assert.ok(d.querySelector(".layout > #view"), "расписание — прямой потомок макета");
+  assert.ok(d.querySelector(".side #weekStrip"), "неделя в строке управления");
+  assert.ok(!d.querySelector(".view.has-aside"), "боковой колонки у дня больше нет");
+  const aside = d.querySelector(".day-aside");
+  assert.ok(aside && aside.parentElement.classList.contains("view"),
+    "справочные карточки лежат в общем потоке под расписанием");
+  dom.window.close();
+});
+
+test("аватар — только фотография, без букв", async () => {
+  const dom = await boot({ hash: "#/9001/2026-10-05" });
+  const avas = all(dom, ".ava");
+  assert.ok(avas.length > 0, "аватары есть");
+  for(const a of avas){
+    assert.equal(a.textContent.trim(), "", "внутри кружка нет текста");
+    assert.ok(a.querySelector("img"), "внутри кружка только картинка");
+  }
+  // у Усмановой фото в фикстуре нет — кружка быть не должно вовсе
+  const rows = all(dom, ".tc-row");
+  const noPhoto = rows.find((r) => /Усманова/.test(r.textContent));
+  assert.ok(noPhoto, "строка без фото существует");
+  assert.equal(noPhoto.querySelector(".ava"), null, "пустого кружка нет");
   dom.window.close();
 });
 
@@ -459,5 +476,108 @@ test("на настоящих данных значков «замена» не�
   assert.ok(all(dom, ".pair-card").length >= 3);
   assert.equal(all(dom, ".pc-chip.changed").length, 0);
   assert.ok(dom.window.document.querySelector("[data-act=whychg]"), "есть пояснение");
+  dom.window.close();
+});
+
+/* ------------------------------------------------------------ подгруппы */
+test("выбор подгруппы убирает занятия чужой половины группы", async () => {
+  const dom = await boot({ hash: "#/9001/2026-10-05" });
+  const w = dom.window;
+  const before = all(dom, ".pair-card").length;
+  assert.ok(w.document.querySelector(".subs"), "пока показаны обе подгруппы");
+
+  w.document.querySelector("#subPick [data-sub='1']").click();
+  await new Promise((r) => setTimeout(r, 80));
+
+  assert.equal(w.document.querySelectorAll(".subs").length, 0,
+    "блоков с двумя подгруппами не осталось");
+  const txtAll = w.document.querySelector("#view").textContent;
+  assert.ok(!/2\s*п\/гр/.test(txtAll), "чужая подгруппа нигде не упоминается");
+  assert.match(txtAll, /1 п\/гр/, "своя подгруппа подписана");
+  assert.ok(all(dom, ".pair-card").length <= before);
+  dom.window.close();
+});
+
+test("вторая подгруппа видит своё расписание", async () => {
+  const dom = await boot({ hash: "#/9001/2026-10-05", storage: { "apt.subgroup": "2" } });
+  const t = dom.window.document.querySelector("#view").textContent;
+  assert.ok(!/1\s*п\/гр/.test(t), "первой подгруппы нет");
+  assert.match(t, /ПрофИнЯз/, "показан предмет второй подгруппы");
+  dom.window.close();
+});
+
+test("выбор подгруппы запоминается и виден в заголовке", async () => {
+  const dom = await boot({ hash: "#/9001/2026-10-05" });
+  const w = dom.window;
+  w.document.querySelector("#subPick [data-sub='2']").click();
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(w.localStorage.getItem("apt.subgroup"), "2");
+  assert.match(w.document.querySelector("#selName").textContent, /2 п\/гр/);
+  assert.equal(w.document.querySelector("#subPick [data-sub='2']").getAttribute("aria-pressed"), "true");
+  dom.window.close();
+
+  const again = await boot({ hash: "#/9001/2026-10-05", storage: { "apt.subgroup": "2" } });
+  assert.equal(again.window.document.querySelector("#subPick [data-sub='2']")
+                    .getAttribute("aria-pressed"), "true", "после перезагрузки выбор на месте");
+  again.window.close();
+});
+
+test("кнопка «Обе» возвращает полное расписание", async () => {
+  const dom = await boot({ hash: "#/9001/2026-10-05", storage: { "apt.subgroup": "1" } });
+  const w = dom.window;
+  assert.equal(w.document.querySelectorAll(".subs").length, 0);
+  w.document.querySelector("#subPick [data-sub='0']").click();
+  await new Promise((r) => setTimeout(r, 80));
+  assert.ok(w.document.querySelector(".subs"), "обе подгруппы вернулись");
+  assert.equal(w.localStorage.getItem("apt.subgroup"), null, "лишнего в хранилище не осталось");
+  dom.window.close();
+});
+
+test("домашка и календарь учитывают выбранную подгруппу", async () => {
+  const dom = await boot({ hash: "#/9001/2026-10-05", storage: { "apt.subgroup": "1" } });
+  const w = dom.window;
+  let copied = "";
+  w.navigator.clipboard = { writeText: async (t) => { copied = t; } };
+  const btn = w.document.querySelector("[data-act=copyhw]");
+  if(btn){
+    btn.click();
+    await new Promise((r) => setTimeout(r, 60));
+    assert.ok(!/Moodle/.test(copied), "задание второй подгруппы не попало в список");
+  }
+  let blob = null;
+  w.URL.createObjectURL = (b) => { blob = b; return "blob:x"; };
+  w.URL.revokeObjectURL = () => {};
+  w.HTMLAnchorElement.prototype.click = function(){};
+  w.document.querySelector("[data-act=ics]").click();
+  await new Promise((r) => setTimeout(r, 60));
+  const ics = await blob.text();
+  assert.ok(!/ПрофИнЯз/.test(ics), "в календарь не попали пары чужой подгруппы");
+  dom.window.close();
+});
+
+test("неделя тоже фильтруется по подгруппе", async () => {
+  const dom = await boot({ hash: "#/9001/2026-10-05",
+                           storage: { "apt.mode": "week", "apt.subgroup": "1" } });
+  const w = dom.window;
+  for(let i = 0; i < 200; i++){
+    await new Promise((r) => setTimeout(r, 10));
+    if(w.document.querySelector(".wk-day")) break;
+  }
+  const t = w.document.querySelector("#view").textContent;
+  assert.ok(!/ПрофИнЯз/.test(t), "предмет второй подгруппы не показан");
+  dom.window.close();
+});
+
+test("клавиши 1, 2 и 0 переключают подгруппу", async () => {
+  const dom = await boot({ hash: "#/9001/2026-10-05" });
+  const w = dom.window;
+  const key = (k) => w.document.dispatchEvent(
+    new w.KeyboardEvent("keydown", { key: k, bubbles: true }));
+  key("2");
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(w.localStorage.getItem("apt.subgroup"), "2");
+  key("0");
+  await new Promise((r) => setTimeout(r, 60));
+  assert.equal(w.localStorage.getItem("apt.subgroup"), null);
   dom.window.close();
 });
