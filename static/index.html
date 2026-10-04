@@ -144,7 +144,8 @@ html[data-theme=dark] .blob{opacity:.3}
 @media (max-width:560px){.brand-t span{display:none}}
 @media (max-width:420px){.brand-t{display:none}}
 .top-actions{margin-left:auto;display:flex;gap:8px;align-items:center}
-@media (max-width:430px){.top-actions{gap:6px}.btn-today{padding:0 11px}.icon-btn{width:36px;height:36px}}
+@media (max-width:430px){.top-actions{gap:6px}.btn-today{padding:0 11px}}
+@media (max-width:340px){.icon-btn{width:34px;height:34px}}
 .icon-btn{width:38px;height:38px;border-radius:12px;display:grid;place-items:center;
   background:var(--card);border:1px solid var(--line);box-shadow:var(--sh-1);
   transition:transform .3s var(--spring),background .25s,border-color .25s;position:relative;flex:none}
@@ -259,7 +260,7 @@ html[data-theme=dark] .blob{opacity:.3}
 .sel-panel.open .sel-body{grid-template-rows:1fr}
 .sel-body-in{overflow:hidden}
 .sel-inner{padding:2px 14px 14px;border-top:1px solid var(--line)}
-.sub-pick{margin-top:14px;padding-top:13px;border-top:1px dashed var(--line)}
+.sub-pick{margin-top:13px;padding-bottom:13px;border-bottom:1px dashed var(--line)}
 .sub-pick .seg{margin-top:7px}
 .sub-pick .sel-hint{margin-top:7px}
 .sub-badge{display:inline-flex;align-items:center;gap:4px;margin-left:7px;
@@ -283,6 +284,8 @@ html[data-theme=dark] .blob{opacity:.3}
   background:var(--line-2);flex:none}
 .search .clear svg{width:11px;height:11px;stroke:var(--ink-2)}
 .groups{display:grid;grid-template-columns:repeat(auto-fill,minmax(92px,1fr));gap:7px;margin-top:11px;
+  max-height:min(46vh,380px);overflow-y:auto;overscroll-behavior:contain;
+  scrollbar-width:thin;padding-right:2px;
   max-height:min(46vh,340px);overflow-y:auto;padding:2px;scrollbar-width:thin}
 .g-btn{height:40px;border-radius:12px;background:var(--bg-soft);font-size:13px;font-weight:700;
   display:flex;align-items:center;justify-content:center;gap:4px;position:relative;
@@ -311,7 +314,7 @@ html[data-theme=dark] .blob{opacity:.3}
 /* ------------------------------------------------ summary chips */
 .strip{display:flex;gap:7px;flex-wrap:wrap;margin-top:16px}
 .day-aside{margin-top:14px;display:grid;gap:12px;
-  grid-template-columns:repeat(auto-fit,minmax(340px,1fr));align-items:start}
+  grid-template-columns:repeat(auto-fit,minmax(min(340px,100%),1fr));align-items:start}
 .day-aside .info-card{margin:0}
 .chip{display:inline-flex;align-items:center;gap:7px;padding:7px 12px;border-radius:12px;
   background:var(--card);border:1px solid var(--line);font-size:12.5px;font-weight:700;
@@ -418,8 +421,10 @@ html[data-theme=dark] .blob{opacity:.3}
 /* подгруппы */
 /* На широком экране подгруппы встают рядом — так ширина работает на дело,
    а не растягивает пустую карточку. */
+/* min(...) обязателен: без него колонка остаётся 300px и на телефоне
+   карточка вылезает за экран */
 .subs{margin-top:11px;display:grid;gap:9px;
-  grid-template-columns:repeat(auto-fit,minmax(300px,1fr))}
+  grid-template-columns:repeat(auto-fit,minmax(min(300px,100%),1fr))}
 .subs.one{grid-template-columns:minmax(0,1fr)}
 .sub-card{border:1px solid var(--line);border-radius:14px;padding:11px 12px;background:var(--card-2)}
 .sub-card .sh{display:flex;align-items:center;gap:8px;margin-bottom:7px}
@@ -453,14 +458,16 @@ html[data-theme=dark] .blob{opacity:.3}
 .pair-prog i{display:block;height:100%;background:var(--acc-grad);border-radius:3px;
   transition:width 1s linear;box-shadow:0 0 12px rgba(99,102,241,.5)}
 /* break */
-.brk{display:flex;align-items:center;gap:10px;padding:4px 0 4px 70px;color:var(--ink-3)}
+/* отступ = ширина рельсы (52) + зазор ряда (12), иначе «перемена» уезжает
+   вправо относительно карточек */
+.brk{display:flex;align-items:center;gap:10px;padding:4px 0 4px 64px;color:var(--ink-3)}
 .brk .ln{flex:1;border-top:2px dotted var(--line-2)}
 .brk .bz{display:inline-flex;align-items:center;gap:6px;font-size:11px;font-weight:750;
   padding:4px 10px;border-radius:999px;background:var(--bg-soft);color:var(--ink-2);white-space:nowrap}
 .brk .bz svg{width:11px;height:11px;stroke:var(--ink-3)}
 .brk.gap .bz{color:var(--warn);background:var(--warn-soft)}
 .brk.gap .bz svg{stroke:var(--warn)}
-@media (max-width:560px){.brk{padding-left:64px}}
+
 
 /* ------------------------------------------------ week view */
 .wk-list{margin-top:16px;display:flex;flex-direction:column;gap:10px}
@@ -614,6 +621,57 @@ kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;fon
   font-weight:700;opacity:0;pointer-events:none;transition:opacity .3s,transform .4s var(--spring);
   z-index:150;box-shadow:0 14px 34px -12px rgba(0,0,0,.5);max-width:calc(100vw - 32px);text-align:center}
 .toast.show{opacity:1;transform:translate(-50%,0)}
+
+/* ================================================================= телефон
+   Узкий экран — основной сценарий: расписание смотрят на перемене, одной
+   рукой. Поэтому здесь крупнее зоны нажатия, уже служебная колонка времени
+   и ничего не режется многоточием без нужды. */
+@media (max-width:560px){
+  .wrap{padding:0 12px calc(86px + var(--safe-b))}
+  .topbar-in{padding:10px 12px;gap:8px}
+
+  /* колонка со временем занимала 18% ширины телефона — ужимаем */
+  .rail{width:42px}
+  .pair-row{gap:9px}
+  .brk{padding-left:51px}
+  .rail .t1{font-size:12.5px}
+  .rail .t2{font-size:10.5px}
+
+  .pair-card{padding:14px 13px 12px}
+  .pc-subj{font-size:15.5px;margin-top:9px}
+  .pc-num{min-width:31px;height:25px}
+  .sub-card{padding:10px 11px}
+
+  /* ФИО переносим на вторую строку, а не обрезаем многоточием */
+  .tc-tx b{white-space:normal;line-height:1.3}
+  .tc-row{align-items:flex-start}
+  .ava{margin-top:1px}
+
+  /* пальцем, а не курсором */
+  .copy-btn{width:34px;height:34px;top:6px;right:6px}
+  .copy-btn svg{width:14px;height:14px}
+  .dets-btn{padding:13px 2px 3px}
+  .seg button{height:38px}
+  .chip.btn{padding:9px 12px}
+  .nav-btn{width:42px;height:42px}
+
+  /* Safari на iOS сам масштабирует страницу, если шрифт поля меньше 16px,
+     и обратно уже не возвращает — поэтому поля крупнее именно здесь */
+  input,select,textarea,.search input{font-size:16px}
+
+  /* три тяжёлых размытых пятна заметно греют телефон */
+  .b3{display:none}
+  .blob{filter:blur(56px);opacity:.42}
+  .grain{display:none}
+}
+@media (max-width:380px){
+  .week{gap:4px}
+  .day-b .dn{font-size:15px}
+  .day-b .dw{font-size:9.5px}
+  .wrap{padding-left:10px;padding-right:10px}
+  .pc-meta{gap:6px}
+  .pc-chip{padding:5px 9px;font-size:11.5px}
+}
 
 @media (prefers-reduced-motion: reduce){
   *,*::before,*::after{animation-duration:.01ms!important;animation-iteration-count:1!important;
@@ -796,14 +854,6 @@ kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;fon
         <div class="fav-lbl">Избранные</div>
         <div class="fav-row" id="favRow"></div>
       </div>
-      <div class="courses" id="courses" role="group" aria-label="Курс"></div>
-      <div class="search">
-        <svg aria-hidden="true"><use href="#i-search"/></svg>
-        <input type="text" id="searchInput" placeholder="Найти группу…" autocomplete="off"
-               aria-label="Поиск группы" enterkeyhint="search">
-        <button class="clear" id="searchClear" aria-label="Очистить" hidden><svg><use href="#i-x"/></svg></button>
-      </div>
-      <div class="groups" id="groupsGrid" role="group" aria-label="Группы"></div>
       <div class="sub-pick">
         <div class="fav-lbl">Моя подгруппа</div>
         <div class="seg" id="subPick" role="group" aria-label="Подгруппа">
@@ -813,6 +863,14 @@ kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;fon
         </div>
         <div class="sel-hint">Выберите свою — занятия чужой подгруппы пропадут из расписания</div>
       </div>
+      <div class="courses" id="courses" role="group" aria-label="Курс"></div>
+      <div class="search">
+        <svg aria-hidden="true"><use href="#i-search"/></svg>
+        <input type="text" id="searchInput" placeholder="Найти группу…" autocomplete="off"
+               aria-label="Поиск группы" enterkeyhint="search">
+        <button class="clear" id="searchClear" aria-label="Очистить" hidden><svg><use href="#i-x"/></svg></button>
+      </div>
+      <div class="groups" id="groupsGrid" role="group" aria-label="Группы"></div>
       <div class="sel-hint">Долгое нажатие или <kbd>Shift</kbd>+клик — добавить в избранные</div>
     </div></div></div>
   </section>
@@ -2266,6 +2324,10 @@ $("#findDates").addEventListener("click", e => {
   findState.date = b.dataset.fd;
   renderFindDates(); loadFind();
 });
+if(matchMedia("(max-width:560px)").matches){
+  $("#findInput").placeholder = "Кого или что ищем?";
+  $("#searchInput").placeholder = "Группа…";
+}
 $("#findInput").addEventListener("input", e => {
   $("#findClear").hidden = !e.target.value;
   renderFind();

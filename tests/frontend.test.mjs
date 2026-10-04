@@ -581,3 +581,90 @@ test("клавиши 1, 2 и 0 переключают подгруппу", async
   assert.equal(w.localStorage.getItem("apt.subgroup"), null);
   dom.window.close();
 });
+
+/* ---------------------------------------------------------------- телефон */
+
+test("выбор подгруппы стоит выше списка групп — на телефоне до него легко дотянуться", async () => {
+  const dom = await boot({ hash: "#/9001/2026-10-05" });
+  const d = dom.window.document;
+  const pick = d.querySelector("#subPick");
+  const grid = d.querySelector("#groupsGrid");
+  assert.ok(pick && grid);
+  // DOCUMENT_POSITION_FOLLOWING = 4: сетка групп идёт ПОСЛЕ выбора подгруппы
+  assert.ok(pick.compareDocumentPosition(grid) & 4,
+    "блок подгруппы оказался под длинным списком групп — на телефоне его не найти");
+  dom.window.close();
+});
+
+test("свайп влево и вправо листает дни", async () => {
+  const dom = await boot({ hash: "#/9001/2026-10-05" });
+  const w = dom.window;
+  const swipe = (fromX, toX, y = 200) => {
+    const start = new w.Event("touchstart", { bubbles: true });
+    Object.defineProperty(start, "touches", { value: [{ clientX: fromX, clientY: y }] });
+    w.document.body.dispatchEvent(start);
+    const end = new w.Event("touchend", { bubbles: true });
+    Object.defineProperty(end, "changedTouches", { value: [{ clientX: toX, clientY: y }] });
+    w.document.body.dispatchEvent(end);
+  };
+  swipe(300, 150);                                    // влево — вперёд
+  await new Promise((r) => setTimeout(r, 120));
+  assert.match(w.location.hash, /2026-10-06/);
+  swipe(150, 300);                                    // вправо — назад
+  await new Promise((r) => setTimeout(r, 120));
+  assert.match(w.location.hash, /2026-10-05/);
+  dom.window.close();
+});
+
+test("короткое касание и вертикальная прокрутка не считаются свайпом", async () => {
+  const dom = await boot({ hash: "#/9001/2026-10-05" });
+  const w = dom.window;
+  const gesture = (dx, dy) => {
+    const start = new w.Event("touchstart", { bubbles: true });
+    Object.defineProperty(start, "touches", { value: [{ clientX: 300, clientY: 300 }] });
+    w.document.body.dispatchEvent(start);
+    const end = new w.Event("touchend", { bubbles: true });
+    Object.defineProperty(end, "changedTouches", { value: [{ clientX: 300 + dx, clientY: 300 + dy }] });
+    w.document.body.dispatchEvent(end);
+  };
+  gesture(-20, 0);                                    // слишком коротко
+  gesture(-120, 90);                                  // это вертикальная прокрутка
+  await new Promise((r) => setTimeout(r, 120));
+  assert.match(w.location.hash, /2026-10-05/, "день не должен меняться от случайного касания");
+  dom.window.close();
+});
+
+test("прокрутка внутри списка групп не листает дни", async () => {
+  const dom = await boot({ hash: "#/9001/2026-10-05" });
+  const w = dom.window;
+  const target = w.document.querySelector("#groupsGrid .g-btn") || w.document.querySelector("#groupsGrid");
+  const start = new w.Event("touchstart", { bubbles: true });
+  Object.defineProperty(start, "touches", { value: [{ clientX: 300, clientY: 300 }] });
+  target.dispatchEvent(start);
+  const end = new w.Event("touchend", { bubbles: true });
+  Object.defineProperty(end, "changedTouches", { value: [{ clientX: 120, clientY: 305 }] });
+  target.dispatchEvent(end);
+  await new Promise((r) => setTimeout(r, 120));
+  assert.match(w.location.hash, /2026-10-05/);
+  dom.window.close();
+});
+
+test("у всех кнопок есть доступное имя — на телефоне подсказки по наведению не работают", async () => {
+  const dom = await boot({ hash: "#/9001/2026-10-05" });
+  const safe = [];
+  for (const b of all(dom, "button")) {
+    const name = (b.textContent || "").trim() || b.getAttribute("aria-label") || b.getAttribute("title");
+    if (!name) safe.push(b.outerHTML.slice(0, 80));
+  }
+  assert.deepEqual(safe, [], "кнопки без подписи: " + safe.join(" | "));
+  dom.window.close();
+});
+
+test("в разметке нет жёстких ширин в пикселях — страница не уезжает вбок", async () => {
+  const dom = await boot({ hash: "#/9001/2026-10-05" });
+  const bad = all(dom, "[style]")
+    .map((el) => el.getAttribute("style"))
+    .filter((s) => /(^|;)\s*(min-)?width\s*:\s*\d{3,}px/.test(s));
+  assert.deepEqual(bad, []);
+  dom.window.close();
+});
