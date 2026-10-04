@@ -35,36 +35,30 @@ def capture(out_dir, http_get, log=print):
         log("не удалось снять teacherinfo:", e)
         return saved
 
-    # 2. вытащить любые похожие на id значения и дёрнуть пару карточек
-    ids = []
-    for m in re.finditer(r'(?:value|data-id|data-key)\s*=\s*["\'](\d{1,6})["\']', html):
-        if m.group(1) not in ids:
-            ids.append(m.group(1))
-    log("кандидатов в id преподавателей:", len(ids), ids[:10])
-
-    # варианты адресов карточки — какой-нибудь да ответит
-    patterns = [
-        "https://almetpt.ru/2020/site/html/teacherinfo?id={id}",
-        "https://almetpt.ru/2020/site/teacherinfo/{id}",
-        "https://almetpt.ru/2020/site/html/teacherinfo/{id}",
-        "https://almetpt.ru/2020/site/schedule/teacher/{id}",
-    ]
-    for tid in ids[:2]:
-        for i, pat in enumerate(patterns):
-            url = pat.format(id=tid)
-            try:
-                page = http_get(url)
-            except Exception as e:
-                log("нет ответа:", url, e)
-                continue
-            put(f"teacher_{tid}_v{i}.html", page)
-            log("снято:", url, len(page))
-
-    # 3. страница расписания — чтобы разобраться с классом changesPair
+    # 2. карточки преподавателей: id берём прямо из расписания
+    #    (<span class="Staff" data-id=1100 title="Юрасов Данила Дмитриевич">)
     try:
-        put("schedule_sample.html",
-            http_get("https://almetpt.ru/2020/site/schedule/group/1042/2026-10-05"))
+        sched = http_get("https://almetpt.ru/2020/site/schedule/group/1042/2026-10-05")
+        put("schedule_sample.html", sched)
     except Exception as e:
         log("не удалось снять расписание:", e)
+        sched = ""
+
+    ids = []
+    for m in re.finditer(r'class="Staff"\s+data-id=["\']?(\d+)', sched):
+        if m.group(1) not in ids:
+            ids.append(m.group(1))
+    for extra in ("1100", "108"):
+        if extra not in ids:
+            ids.append(extra)
+    log("id преподавателей из расписания:", ids[:10])
+
+    for tid in ids[:3]:
+        url = f"https://almetpt.ru/2020/site/html/teacherinfo/{tid}"
+        try:
+            put(f"teacher_{tid}.html", http_get(url))
+            log("снято:", url)
+        except Exception as e:
+            log("нет ответа:", url, e)
 
     return saved
