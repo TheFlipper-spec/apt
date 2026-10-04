@@ -171,3 +171,62 @@ class TestHelpers(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class RealPagesTest(unittest.TestCase):
+    """Проверки на настоящих страницах almetpt.ru (сняты раннером GitHub Actions).
+
+    Синтетические фикстуры повторяют разметку, но живой HTML — единственная
+    защита от того, что сайт поменяется, а мы этого не заметим.
+    """
+
+    @classmethod
+    def setUpClass(cls):
+        here = os.path.join(os.path.dirname(os.path.abspath(__file__)), "fixtures", "raw")
+        with open(os.path.join(here, "schedule_real.html"), encoding="utf-8") as f:
+            cls.sched = f.read()
+        with open(os.path.join(here, "teacher_card.html"), encoding="utf-8") as f:
+            cls.card = f.read()
+        cls.bells = {r: (s, e) for r, s, e in P.BELLS_FALLBACK}
+
+    def test_real_day_parses(self):
+        d = P.build_day(1042, "2026-10-05", self.sched, self.bells)
+        self.assertTrue(d["ok"])
+        self.assertEqual(len(d["pairs"]), 4)
+        self.assertEqual([p["n"] for p in d["pairs"]], ["I", "II", "III", "IV"])
+        self.assertEqual(d["pairs"][0]["start"], "08:00")
+        self.assertEqual(d["pairs"][-1]["end"], "14:10")
+
+    def test_real_day_is_whole_day_from_changes_table(self):
+        """АПТ публикует день целиком через таблицу замен: помечены все пары."""
+        d = P.build_day(1042, "2026-10-05", self.sched, self.bells)
+        self.assertTrue(d["baseMissing"], "страница сообщает, что основного расписания нет")
+        self.assertTrue(all(p["changed"] for p in d["pairs"]),
+                        "класс changesPair стоит на каждой паре — это не признак замены")
+
+    def test_real_subgroups_are_split(self):
+        d = P.build_day(1042, "2026-10-05", self.sched, self.bells)
+        first = d["pairs"][0]
+        self.assertEqual(len(first["parts"]), 2)
+        rooms = sorted(x["room"] for x in first["parts"])
+        self.assertEqual(rooms, ["233", "318"])
+        subs = sorted(x["subject"] for x in first["parts"])
+        self.assertEqual(subs, ["03.03/09.0", "ПрофИнЯз"])
+
+    def test_real_teacher_ids_extracted(self):
+        d = P.build_day(1042, "2026-10-05", self.sched, self.bells)
+        ids = {t["id"] for p in d["pairs"] for part in p["parts"] for t in part["teachers"]}
+        ids |= {t["id"] for p in d["pairs"] for t in p["teachers"] if t.get("id")}
+        self.assertIn(1100, ids)   # Юрасов Д.Д.
+        self.assertIn(874, ids)    # Зинкин Д.В.
+
+    def test_real_teacher_card(self):
+        c = P.parse_teacher_card(self.card)
+        self.assertEqual(c["full"], "Юрасов Данила Дмитриевич")
+        self.assertEqual(c["position"], "Преподаватель информационных технологий")
+        self.assertEqual(c["photo"], "/img/staffs/1100.jpeg")
+
+    def test_teacher_card_without_photo_is_safe(self):
+        c = P.parse_teacher_card("<html><body><h3>Нет такого</h3></body></html>")
+        self.assertEqual(c["photo"], "")
+        self.assertEqual(c["position"], "")

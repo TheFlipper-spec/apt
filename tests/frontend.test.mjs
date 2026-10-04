@@ -364,3 +364,82 @@ test("клик по дню в обзоре недели открывает эт�
   assert.equal(w.localStorage.getItem("apt.mode"), "day");
   dom.window.close();
 });
+
+/* ------------------------------------------------- новое: макет, замены, память */
+test("преподаватель показывается с аватаром, должностью и полным ФИО", async () => {
+  const dom = await boot({ hash: "#/9001/2026-10-05" });
+  const rows = all(dom, ".tc-row");
+  assert.ok(rows.length >= 2, "строки преподавателей есть");
+  const t = rows.map((r) => r.textContent).join(" ");
+  assert.match(t, /Юрасов Данила Дмитриевич/, "полное ФИО из справочника");
+  assert.match(t, /Преподаватель информационных технологий/, "должность");
+  // у Юрасова есть фото, у Усмановой нет — инициалы обязаны быть всегда
+  const avas = all(dom, ".tc-row .ava");
+  assert.ok(avas.every((a) => /^[А-ЯЁ]{2}$/.test(a.textContent.trim())), "инициалы во всех аватарах");
+  assert.ok(avas.some((a) => a.querySelector("img[src*='teachers/1100.jpg']")), "фото подставлено");
+  dom.window.close();
+});
+
+test("без справочника преподаватель всё равно виден", async () => {
+  const dom = await boot({ hash: "#/9001/2026-10-05",
+                           fetchOpts: { missing: ["data/teachers.json"] } });
+  await new Promise((r) => setTimeout(r, 150));
+  assert.match(dom.window.document.querySelector("#view").textContent, /Юрасов/);
+  dom.window.close();
+});
+
+test("если весь день из таблицы замен — значков «замена» нет, есть пояснение", async () => {
+  const day = JSON.parse(
+    fs.readFileSync(path.join(WEB, "data/d/9001/2026-10-05.json"), "utf8"));
+  day.pairs.forEach((p) => { p.changed = true; });        // так отдаёт настоящий сайт
+  const dom = await boot({ hash: "#/9001/2026-10-05",
+                           fetchOpts: { override: { "data/d/9001/2026-10-05.json": day } } });
+  const w = dom.window;
+  assert.ok(all(dom, ".pair-card").length > 1, "пары отрисованы");
+  assert.equal(all(dom, ".pc-chip.changed").length, 0, "у пар нет значка «замена»");
+  assert.equal(all(dom, ".pair-card.changed").length, 0, "нет оранжевых рамок");
+  const why = w.document.querySelector("[data-act=whychg]");
+  assert.ok(why, "есть спокойная пометка в сводке");
+  why.click();
+  await new Promise((r) => setTimeout(r, 60));
+  assert.ok(w.document.querySelector("#mdChg").classList.contains("open"), "пояснение открылось");
+  assert.match(w.document.querySelector("#mdChg").textContent, /таблиц[ауы] замен/i);
+  dom.window.close();
+});
+
+test("если заменена часть пар — значок показывается", async () => {
+  // фикстура как раз такая: помечена одна пара из четырёх
+  const dom = await boot({ hash: "#/9001/2026-10-05" });
+  assert.equal(all(dom, ".pc-chip.changed").length, 1, "ровно один значок");
+  assert.equal(all(dom, ".pair-card.changed").length, 1);
+  assert.match(txt(dom, ".strip"), /1 замена/);
+  assert.ok(!dom.window.document.querySelector("[data-act=whychg]"), "пояснение не нужно");
+  dom.window.close();
+});
+
+test("сайт открывается на запомненной группе, без даты в ссылке", async () => {
+  const dom = await boot({ storage: { "apt.group": "9002", "apt.gname": "ТМ-241" } });
+  const w = dom.window;
+  assert.equal(txt(dom, "#selBadge"), "ТМ-241");
+  assert.match(w.location.hash, /^#\/9002$/, "в ссылке только группа — дата подставится сегодняшняя");
+  dom.window.close();
+});
+
+test("ссылка с датой по-прежнему открывает именно её", async () => {
+  const dom = await boot({ hash: "#/9001/2026-10-07",
+                           storage: { "apt.group": "9002", "apt.gname": "ТМ-241" } });
+  assert.equal(txt(dom, "#selBadge"), "СА-231б");
+  assert.match(dom.window.location.hash, /2026-10-07$/);
+  dom.window.close();
+});
+
+test("боковая колонка и основной блок существуют в разметке", async () => {
+  const dom = await boot({ hash: "#/9001/2026-10-05" });
+  const d = dom.window.document;
+  assert.ok(d.querySelector(".layout > .side"), "боковая колонка");
+  assert.ok(d.querySelector(".side #weekStrip"), "полоска недели в колонке");
+  assert.ok(d.querySelector(".side .sel-panel"), "выбор группы в колонке");
+  assert.ok(d.querySelector(".layout > #view"), "контент — соседний блок");
+  assert.ok(d.querySelector(".view.has-aside > .day-aside"), "справочные карточки вынесены вбок");
+  dom.window.close();
+});

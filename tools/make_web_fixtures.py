@@ -56,6 +56,15 @@ def main():
             d["source"] = "fixture"
             FA.wjson(os.path.join(DATA, "d", str(g["id"]), f"{date_s}.json"), d)
 
+    FA.wjson(os.path.join(DATA, "teachers.json"), {"ok": True, "teachers": {
+        "1100": {"id": 1100, "full": "Юрасов Данила Дмитриевич", "short": "Юрасов Д.Д.",
+                 "position": "Преподаватель информационных технологий",
+                 "photo": "teachers/1100.jpg"},
+        "108": {"id": 108, "full": "Усманова Лилия Мансуровна", "short": "Усманова Л.М.",
+                "position": "Методист, преподаватель иностранного языка",
+                "category": "Высшая"},
+    }})
+
     summary, lessons = FA.build_indexes(DATA, GROUPS, WEEK)
     FA.wjson(os.path.join(DATA, "summary.json"), summary)
     for date_s, items in lessons.items():

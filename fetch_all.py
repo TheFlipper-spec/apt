@@ -205,18 +205,6 @@ def main():
     copy_static(os.path.join(BASE, "static"), out)
     open(os.path.join(out, ".nojekyll"), "w").close()
 
-    # --- разовый снимок страниц педсостава (нужен, чтобы написать парсер) ---
-    raw_dir = os.path.join(out, "_raw")
-    if (not args.offline and not os.path.exists(raw_dir)
-            and not os.path.exists(os.path.join(data_dir, "teachers.json"))):
-        try:
-            sys.path.insert(0, os.path.join(BASE, "tools"))
-            import capture_teachers
-            got = capture_teachers.capture(raw_dir, http_get, log)
-            log("снимок педсостава:", ", ".join(got) or "пусто")
-        except Exception as e:
-            log("снимок педсостава не удался:", e)
-
     if args.offline:
         groups = (rjson(os.path.join(data_dir, "groups.json")) or {}).get("groups") or []
         if not groups:
@@ -350,6 +338,12 @@ def main():
                          {"ok": True, "date": date_s, "lessons": lessons})
     log(f"Индексы: summary.json + {len(lessons_per_date)} дневных срезов")
 
+    # ------------------------------------------------ 6б. педсостав
+    try:
+        collect_teachers(data_dir, dates, workers=min(args.workers, 4))
+    except Exception as e:
+        log("Педсостав собрать не удалось:", e)
+
     # ------------------------------------------------ 7. meta
     published_days = sum(1 for d in dates if summary["counts"].get(d, {}).get("published"))
     wjson(os.path.join(data_dir, "meta.json"), {
@@ -456,6 +450,137 @@ def cleanup(data_dir, today, keep_days, dates):
     return removed
 
 
+
+# ===================================================================== педсостав
+PHOTO_MAX = 400 * 1024          # фото крупнее — не зеркалим, оставим ссылку
+TEACHER_TTL = 30 * 24 * 3600    # карточку перечитываем раз в месяц
+
+
+def http_get_bytes(url, timeout=25, tries=2):
+    last = None
+    for i in range(tries):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": UA, "Accept": "*/*"})
+            with urllib.request.urlopen(req, timeout=timeout) as r:
+                return r.read(), r.headers.get("Content-Type", "")
+        except Exception as e:
+            last = e
+            time.sleep(0.4 * (i + 1))
+    raise last
+
+
+def collect_teachers(data_dir, dates, workers=4):
+    """Собирает справочник преподавателей по id, встреченным в расписании.
+
+    id берётся прямо из страниц расписания: <span class="Staff" data-id=1100>.
+    Карточка /2020/site/html/teacherinfo/<id> даёт должность и фото,
+    фото зеркалится в docs/data/teachers/<id>.jpg — чтобы сайт не зависел
+    от доступности almetpt.ru и работал офлайн.
+    """
+    seen = {}
+    d_root = os.path.join(data_dir, "d")
+    if os.path.isdir(d_root):
+        for gid in os.listdir(d_root):
+            for fn in os.listdir(os.path.join(d_root, gid)):
+                if fn[:-5] not in dates:
+                    continue
+                day = rjson(os.path.join(d_root, gid, fn)) or {}
+                for pair in day.get("pairs", []):
+                    srcs = list(pair.get("teachers") or [])
+                    for part in pair.get("parts") or []:
+                        srcs += part.get("teachers") or []
+                    for t in srcs:
+                        tid = t.get("id")
+                        if tid:
+                            seen.setdefault(int(tid), {}).update(
+                                {k: v for k, v in t.items() if v and k != "id"})
+    if not seen:
+        log("Педсостав: id преподавателей в расписании не найдены")
+        return
+
+    path = os.path.join(data_dir, "teachers.json")
+    store = rjson(path) or {}
+    old = store.get("teachers") or {}
+    now = int(time.time())
+    photo_dir = os.path.join(data_dir, "teachers")
+
+    todo = [tid for tid in seen
+            if now - int((old.get(str(tid)) or {}).get("checkedAt", 0)) > TEACHER_TTL]
+    log(f"Педсостав: встречено {len(seen)}, обновить нужно {len(todo)}")
+
+    out = dict(old)
+    # имена из расписания знаем всегда, даже если карточка не открылась
+    for tid, info in seen.items():
+        rec = dict(out.get(str(tid)) or {})
+        rec.setdefault("id", tid)
+        if info.get("full"):
+            rec["full"] = info["full"]
+        if info.get("short"):
+            rec["short"] = info["short"]
+        out[str(tid)] = rec
+
+    def one(tid):
+        try:
+            html = http_get(f"{SITE}/2020/site/html/teacherinfo/{tid}")
+            card = P.parse_teacher_card(html)
+        except Exception as e:
+            return tid, None, f"карточка: {e}"
+        photo_rel = None
+        src = card.get("photo") or ""
+        if src:
+            url = src if src.startswith("http") else SITE + src
+            try:
+                blob, ctype = http_get_bytes(url)
+                if blob[:3] == b"\xff\xd8\xff" or "image" in ctype:
+                    if len(blob) <= PHOTO_MAX:
+                        os.makedirs(photo_dir, exist_ok=True)
+                        fp = os.path.join(photo_dir, f"{tid}.jpg")
+                        if not (os.path.exists(fp) and open(fp, "rb").read() == blob):
+                            with open(fp, "wb") as f:
+                                f.write(blob)
+                        photo_rel = f"teachers/{tid}.jpg"
+            except Exception:
+                pass
+        return tid, (card, photo_rel, src), None
+
+    done = fails = 0
+    if todo:
+        with cf.ThreadPoolExecutor(max_workers=workers) as ex:
+            for tid, res, err in ex.map(one, todo):
+                if err or not res:
+                    fails += 1
+                    continue
+                card, photo_rel, src = res
+                rec = dict(out.get(str(tid)) or {})
+                rec["id"] = tid
+                if card.get("full"):
+                    rec["full"] = card["full"]
+                for k in ("position", "category"):
+                    if card.get(k):
+                        rec[k] = card[k]
+                if photo_rel:
+                    rec["photo"] = photo_rel
+                elif src:
+                    rec["photoUrl"] = src if src.startswith("http") else SITE + src
+                rec["checkedAt"] = now
+                out[str(tid)] = rec
+                done += 1
+
+    withphoto = sum(1 for r in out.values() if r.get("photo") or r.get("photoUrl"))
+    log(f"Педсостав: всего {len(out)}, обновлено {done}, ошибок {fails}, с фото {withphoto}")
+    write_if_changed(path, {"ok": True, "teachers": out})
+
+    # подчистить фото тех, кого больше нет в расписании
+    if os.path.isdir(photo_dir):
+        keep = {f"{t}.jpg" for t in out}
+        for fn in os.listdir(photo_dir):
+            if fn not in keep:
+                try:
+                    os.remove(os.path.join(photo_dir, fn))
+                except OSError:
+                    pass
+
+
 def build_indexes(data_dir, groups, dates):
     """
     summary.json  — {"g": {gid: {date: [пар, опубликовано, есть замены, начало, конец]}}}
@@ -484,7 +609,11 @@ def build_indexes(data_dir, groups, dates):
             c["withPairs"] += 1 if pairs else 0
             c["published"] += 1 if d.get("published") else 0
             for p in pairs:
-                lessons_per_date[date_s].append({
+                tlist = list(p.get("teachers") or [])
+                for part in p.get("parts") or []:
+                    tlist += part.get("teachers") or []
+                tid = next((t.get("id") for t in tlist if t.get("id")), None)
+                row_l = {
                     "g": gid, "gn": names.get(gid, ""),
                     "n": p.get("n", ""), "s": p.get("start", ""), "e": p.get("end", ""),
                     "subj": p.get("subject", "") or p.get("subjectFull", ""),
@@ -492,7 +621,10 @@ def build_indexes(data_dir, groups, dates):
                     "r": p.get("room", ""),
                     "sg": p.get("subgroup", ""),
                     "ch": 1 if p.get("changed") else 0,
-                })
+                }
+                if tid:
+                    row_l["ti"] = tid           # id для аватара в поиске
+                lessons_per_date[date_s].append(row_l)
         if row:
             g_index[str(gid)] = row
 

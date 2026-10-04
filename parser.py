@@ -384,8 +384,13 @@ def _parse_variant(rd):
     for st in find_all(rd, lambda n: n.tag == "span" and n.has_class("Staff")):
         short = clean(st.text())
         full = clean(st.attrs.get("title", ""))
+        # id ведёт на карточку преподавателя: /2020/site/html/teacherinfo/<id>
+        tid = (st.attrs.get("data-id") or "").strip().strip('"\'')
         if short or full:
-            teachers.append({"short": short, "full": full})
+            t = {"short": short, "full": full}
+            if tid.isdigit():
+                t["id"] = int(tid)
+            teachers.append(t)
     full_span = None
     for sp in find_all(rd, lambda n: n.tag == "span" and n.has_class("d-none", "d-md-block")):
         if "преп." in sp.text():
@@ -586,6 +591,41 @@ def json_dumps(x):
 
 
 # ---------------------------------------------------------------- bells page
+def parse_teacher_card(html_text):
+    """Карточка преподавателя: /2020/site/html/teacherinfo/<id>
+
+    Возвращает {"full": ФИО, "position": должность, "photo": путь к фото}.
+    Фото на сайте лежит по предсказуемому адресу /img/staffs/<id>.jpeg,
+    но берём его из разметки — вдруг расширение другое.
+    """
+    out = {"full": "", "position": "", "photo": ""}
+
+    m = re.search(r"""<img[^>]*src=['"]([^'"]*?/img/staffs/[^'"]+)['"]""", html_text)
+    if m:
+        out["photo"] = m.group(1)
+
+    root = build_dom(html_text)
+
+    # ФИО — заголовок рядом с «(<id>)»
+    for n in find_all(root, lambda x: x.tag in ("h1", "h2", "h3", "h4", "h5")):
+        t = clean(n.text())
+        # «Юрасов Данила Дмитриевич» — три слова с заглавной
+        if re.fullmatch(r"[А-ЯЁ][а-яё-]+(?:\s+[А-ЯЁ][а-яё-]+){1,2}", t):
+            out["full"] = t
+            break
+
+    # «Должность: Преподаватель информационных технологий Категория: Высшая»
+    txt = clean(re.sub(r"<[^>]+>", " ", html_text))
+    stop = r"(?:Категория:|Образование:|Работает:|Общий стаж:|Стаж|$)"
+    m = re.search(r"Должность:\s*(.{2,160}?)\s*" + stop, txt)
+    if m:
+        out["position"] = clean(m.group(1)).rstrip(",;")
+    m = re.search(r"Категория:\s*([А-Яа-яЁё ]{3,30}?)\s*(?:Образование:|Работает:|Общий стаж:|$)", txt)
+    if m:
+        out["category"] = clean(m.group(1))
+    return out
+
+
 def parse_bells(html_text):
     dom = build_dom(html_text)
     out = []

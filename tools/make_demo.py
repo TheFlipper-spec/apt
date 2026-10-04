@@ -53,6 +53,13 @@ def main():
     bells = FA.rjson(os.path.join(src_data, "bells.json"))
     if bells:
         FA.wjson(os.path.join(out_data, "bells.json"), bells)
+    # справочник преподавателей и их фото — как есть
+    teachers = FA.rjson(os.path.join(src_data, "teachers.json"))
+    if teachers:
+        FA.wjson(os.path.join(out_data, "teachers.json"), teachers)
+    src_photos = os.path.join(src_data, "teachers")
+    if os.path.isdir(src_photos):
+        shutil.copytree(src_photos, os.path.join(out_data, "teachers"), dirs_exist_ok=True)
 
     today = datetime.now(FA.TZ).date()
     monday = today - timedelta(days=today.weekday())

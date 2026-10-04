@@ -24,12 +24,13 @@ def _pair_card(numeral, t1, t2, variants, lines="", changed=False):
         room_html = (f'<span class="text-nowrap">ауд.'
                      f'<a href="/fulltime/rooms?idAudience=41" title="{v.get("roomTitle", "")}">{room}</a>'
                      f'</span>') if room else ""
+        tid_attr = f' data-id={v["teacherId"]}' if v.get("teacherId") else ""
         vs.append(f"""
       <div class="d-flex flex-column col-12 {'changesPair' if v.get('changed') else ''}">
         <div class="d-flex flex-row align-items-center">
           <span class="rounded px-1 {sub_cls}"><span class="{sub_cls}">{sub_txt}</span></span>
           {room_html}
-          <span class="Staff d-md-none" title="{v.get('teacherFull', '')}">{v.get('teacher', '')}</span>
+          <span class="Staff d-md-none"{tid_attr} title="{v.get('teacherFull', '')}">{v.get('teacher', '')}</span>
           <span class="d-none d-md-block">преп.<span class="h5">{v.get('teacherFull', '')}</span></span>
         </div>
         <div class="d-md-none" title="{v.get('subjectFull', '')}">{v.get('subject', '')}</div>
@@ -82,17 +83,17 @@ def day_with_pairs():
             '<span> на понедельник, 5 октября 2026 года</span></div>']
     body.append(_pair_card("I", "08:00", "09:20", [
         {"sub": "1", "room": "233", "roomTitle": "Лаборатория ИТ",
-         "teacher": "Юрасов Д.Д.", "teacherFull": "Юрасов Данила Дмитриевич",
+         "teacher": "Юрасов Д.Д.", "teacherFull": "Юрасов Данила Дмитриевич", "teacherId": 1100,
          "subject": "03.03/09.0", "subjectFull": "Безопасность сетевой инфраструктуры"},
         {"sub": "2", "room": "318", "roomTitle": "Кабинет иностранного языка",
-         "teacher": "Усманова Л.М.", "teacherFull": "Усманова Лилия Мансуровна",
+         "teacher": "Усманова Л.М.", "teacherFull": "Усманова Лилия Мансуровна", "teacherId": 108,
          "subject": "ПрофИнЯз", "subjectFull": "Иностранный язык в проф. деятельности",
          "lines": lines(topic='Лексический материал "Проживание в гостинице" (Практическая)',
                         hw="Выполнить задания в Moodle")},
     ]))
     body.append(_pair_card("II", "09:30", "10:50", [
         {"room": "236", "roomTitle": "Лаборатория моделирования",
-         "teacher": "Зинкин Д.В.", "teacherFull": "Зинкин Дмитрий Владимирович",
+         "teacher": "Зинкин Д.В.", "teacherFull": "Зинкин Дмитрий Владимирович", "teacherId": 874,
          "subject": "05.03/09.0", "subjectFull": "Технологии хранения и анализа данных"},
     ], lines=lines(topic="Конфигурирование SMB (Практическая)", hw="Оформить отчёт")))
     body.append(_pair_card("III", "11:20", "12:40", [
@@ -119,7 +120,7 @@ def day_base_missing():
             + '<div class="header3">Расписание занятий группы СА-231б'
               '<span> на среду, 7 октября 2026 года</span></div>'
             + _pair_card("I", "08:00", "09:20", [
-                {"room": "233", "teacher": "Юрасов Д.Д.", "teacherFull": "Юрасов Данила Дмитриевич",
+                {"room": "233", "teacher": "Юрасов Д.Д.", "teacherFull": "Юрасов Данила Дмитриевич", "teacherId": 1100,
                  "subject": "ОБЖ", "subjectFull": "Основы безопасности"}])
             + GRAF
             + '<div class="alert alert-info">Основное расписание отсутствует</div>'
@@ -139,7 +140,7 @@ def day_consultations():
             + '<div class="header3">Расписание занятий группы СА-231б'
               '<span> на четверг, 8 октября 2026 года</span></div>'
             + _pair_card("I", "08:00", "09:20", [
-                {"room": "233", "teacher": "Юрасов Д.Д.", "teacherFull": "Юрасов Данила Дмитриевич",
+                {"room": "233", "teacher": "Юрасов Д.Д.", "teacherFull": "Юрасов Данила Дмитриевич", "teacherId": 1100,
                  "subject": "ОБЖ", "subjectFull": "Основы безопасности"}])
             + '<div class="header3">Консультации преподавателей</div>'
               '<div class="card myCard">Зинкин Д.В. — вторник, 15:50, ауд. 236</div>'
