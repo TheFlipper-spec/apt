@@ -156,14 +156,22 @@ def payload_key(data):
     """Содержимое дня без служебных полей — чтобы не переписывать файл зря."""
     if not data:
         return None
-    skip = {"fetchedAt", "checkedAt", "recheckedAt", "source", "stale"}
+    skip = {"fetchedAt", "checkedAt", "recheckedAt", "source", "stale", "v"}
     return json.dumps({k: v for k, v in data.items() if k not in skip},
                       ensure_ascii=False, sort_keys=True)
+
+
+# Версия формата дня. Её увеличение заставляет бота один раз перекачать всё
+# окно: иначе после доработки парсера старые файлы остались бы без новых полей
+# (например, без id преподавателей) до истечения их собственного TTL.
+SCHEMA = 3
 
 
 def ttl_for(d: Date, today: Date, stored):
     """Сколько секунд сохранённый файл считается свежим. 0 — качать обязательно."""
     if not stored or not stored.get("fetchedAt"):
+        return 0
+    if int(stored.get("v") or 0) != SCHEMA:      # файл собран старым парсером
         return 0
     delta = (d - today).days
     if delta < 0:
@@ -289,7 +297,9 @@ def main():
             or data.get("group", "")
         now_ts = int(time.time())
 
-        if stored and payload_key(stored) == payload_key(data):
+        data["v"] = SCHEMA
+        if (stored and int(stored.get("v") or 0) == SCHEMA
+                and payload_key(stored) == payload_key(data)):
             with cnt_lock:
                 counters["same"] += 1
                 checked_new[key] = now_ts

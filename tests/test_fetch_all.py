@@ -17,9 +17,10 @@ import fetch_all as FA                 # noqa: E402
 TODAY = date(2026, 10, 7)              # среда
 
 
-def stored(fetched_ago, published=True, pairs=1):
+def stored(fetched_ago, published=True, pairs=1, v=None):
     return {"fetchedAt": int(time.time()) - fetched_ago,
             "published": published,
+            "v": FA.SCHEMA if v is None else v,
             "pairs": [{"n": "I"}] * pairs}
 
 
@@ -189,3 +190,23 @@ class TestGroupMerge(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SchemaVersionTest(unittest.TestCase):
+    """Смена версии парсера должна один раз обновить всё окно."""
+
+    def test_old_schema_forces_refetch(self):
+        past = TODAY - timedelta(days=14)
+        # свежий файл нужной версии — качать не надо
+        self.assertGreater(FA.ttl_for(past, TODAY, stored(0)), 0)
+        # тот же файл, но собранный старым парсером — качать обязательно
+        self.assertEqual(FA.ttl_for(past, TODAY, stored(0, v=FA.SCHEMA - 1)), 0)
+        # и файл вовсе без версии
+        legacy = {k: val for k, val in stored(0).items() if k != "v"}
+        self.assertEqual(FA.ttl_for(past, TODAY, legacy), 0)
+
+    def test_version_is_not_a_content_change(self):
+        """Служебное поле v не должно считаться изменением содержимого."""
+        a = {"pairs": [], "v": 3, "fetchedAt": 1}
+        b = {"pairs": [], "v": 4, "fetchedAt": 2}
+        self.assertEqual(FA.payload_key(a), FA.payload_key(b))
