@@ -386,6 +386,24 @@ html[data-theme=dark] .blob{opacity:.3}
 .pc-chip.online svg{stroke:var(--onl)}
 .pc-chip.changed{background:var(--warn-soft);color:var(--warn)}
 .pc-chip.changed svg{stroke:var(--warn)}
+/* аватар преподавателя */
+.ava{width:26px;height:26px;border-radius:50%;flex:none;position:relative;
+  display:grid;place-items:center;overflow:hidden;
+  background:var(--acc-soft);color:var(--acc);
+  font-size:9.5px;font-weight:800;letter-spacing:.02em;
+  box-shadow:0 0 0 1.5px var(--card),0 0 0 2.5px var(--line)}
+.ava img{width:100%;height:100%;object-fit:cover;display:block;
+  opacity:0;transition:opacity .35s var(--ease)}
+.ava img.on{opacity:1}
+.ava.big{width:46px;height:46px;font-size:14px}
+.pc-teacher .ava{margin-right:-1px}
+.tc-list{display:flex;flex-direction:column;gap:9px;margin-top:10px}
+.tc-row{display:flex;align-items:center;gap:9px;min-width:0}
+.tc-tx{min-width:0;line-height:1.25}
+.tc-tx b{display:block;font-size:12.8px;font-weight:650;color:var(--ink-2);
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.tc-tx span{display:block;font-size:10.8px;color:var(--ink-3);font-weight:600;
+  white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .pc-teacher{display:flex;align-items:center;gap:8px;margin-top:10px;font-size:13px;
   color:var(--ink-2);font-weight:600;min-width:0}
 .pc-teacher svg{width:14px;height:14px;stroke:var(--ink-3);flex:none}
@@ -967,7 +985,7 @@ const state = {
   data: null, week: null,
   slideDir: 1,
   staticMode: true,
-  meta: null, summary: null,
+  meta: null, summary: null, teachers: null,
   reqId: 0, abort: null,
   offline: !navigator.onLine,
 };
@@ -995,6 +1013,11 @@ class ApiError extends Error{
 const memCache = new Map();                 // url -> {j, ts, fromCache}
 const MEM_TTL = 4*60*1000;
 
+/* путь к файлу внутри зеркала данных: и в статике, и при живом сервере
+   справочник с фото лежит в data/ */
+function dataUrl(rel){
+  return /^https?:/i.test(rel) ? rel : "data/" + String(rel).replace(/^\/+/, "");
+}
 function apiUrl(kind, a, b){
   if(state.staticMode){
     if(kind === "groups")  return "data/groups.json";
@@ -1002,6 +1025,7 @@ function apiUrl(kind, a, b){
     if(kind === "meta")    return "data/meta.json";
     if(kind === "summary") return "data/summary.json";
     if(kind === "lessons") return `data/x/${a}.json`;
+    if(kind === "teachers") return "data/teachers.json";
     if(kind === "day")     return `data/d/${a}/${b}.json`;
   }else{
     if(kind === "groups")  return "api/groups";
@@ -1009,6 +1033,7 @@ function apiUrl(kind, a, b){
     if(kind === "meta")    return "api/health";
     if(kind === "summary") return null;
     if(kind === "lessons") return `api/lessons?date=${a}`;
+    if(kind === "teachers") return "data/teachers.json";
     if(kind === "day")     return `api/schedule?group=${a}&date=${b}`;
   }
   return null;
@@ -1712,6 +1737,53 @@ function topicsOf(p){
   return own.concat(sub);
 }
 
+/* ------------------------------------------------------ преподаватели */
+function teacherRec(t){
+  const id = t && t.id;
+  const base = (state.teachers && id && state.teachers[String(id)]) || {};
+  return {
+    id,
+    full: base.full || (t && t.full) || (t && t.short) || "",
+    short: (t && t.short) || base.short || base.full || "",
+    position: base.position || "",
+    photo: base.photo || base.photoUrl || "",
+  };
+}
+function initials(name){
+  const w = String(name || "").trim().split(/\s+/).filter(Boolean);
+  if(!w.length) return "?";
+  const a = w[0][0] || "";
+  const b = w.length > 1 ? (w[1][0] || "") : "";
+  return (a + b).toUpperCase();
+}
+/* Аватар: фото из зеркала, а если его нет или оно не загрузилось — инициалы.
+   Картинка появляется только после успешной загрузки, поэтому «битых»
+   иконок не бывает. */
+function avatar(rec, cls){
+  const ini = esc(initials(rec.full || rec.short));
+  const img = rec.photo
+    ? `<img src="${esc(dataUrl(rec.photo))}" alt="" loading="lazy" decoding="async"
+         onload="this.classList.add('on')" onerror="this.remove()">`
+    : "";
+  return `<span class="ava${cls ? " " + cls : ""}" aria-hidden="true">${ini}${img}</span>`;
+}
+function teacherList(list){
+  const recs = (list || []).map(teacherRec).filter(r => r.full || r.short);
+  if(!recs.length) return "";
+  const seen = new Set();
+  const uniq = recs.filter(r => { const k = r.id || r.full; if(seen.has(k)) return false; seen.add(k); return true; });
+  return `<div class="tc-list">` + uniq.map(r => `
+    <div class="tc-row">${avatar(r)}
+      <span class="tc-tx"><b title="${esc(r.full)}">${esc(r.full || r.short)}</b>
+      ${r.position ? `<span title="${esc(r.position)}">${esc(r.position)}</span>` : ""}</span>
+    </div>`).join("") + `</div>`;
+}
+/* запасной вариант, когда id преподавателя в данных нет (старое зеркало) */
+function teacherPlain(text){
+  return text ? `<div class="pc-teacher"><svg><use href="#i-user"/></svg>` +
+                `<span title="${esc(text)}">${esc(text)}</span></div>` : "";
+}
+
 function roomChip(room, title){
   if(!room) return "";
   if(/on.?line/i.test(room))
@@ -1740,7 +1812,7 @@ function pairCard(p, idx){
         </div>
         ${v.subjectFull && v.subjectFull !== v.subject ? `<div class="pc-subjfull">${esc(v.subjectFull)}</div>` : ""}
         <div class="pc-meta">${roomChip(v.room, v.roomTitle)}</div>
-        ${v.teacher ? `<div class="pc-teacher"><svg><use href="#i-user"/></svg><span>${esc(v.teacher)}</span></div>` : ""}
+        ${teacherList(v.teachers) || teacherPlain(v.teacher)}
         ${detBlocks(v.topics, v.homework, v.notes)}
       </div>`).join("") + `</div>` : "";
 
@@ -1765,7 +1837,7 @@ function pairCard(p, idx){
       ${p.subjectFull && p.subjectFull !== p.subject ? `<div class="pc-subjfull">${esc(p.subjectFull)}</div>` : ""}
       ${p.roomTitle ? `<div class="pc-subjfull" style="color:var(--ink-3)">${esc(p.roomTitle)}</div>` : ""}`}
       <div class="pc-meta">${chips.join("")}</div>
-      ${!multi && p.teacher ? `<div class="pc-teacher"><svg><use href="#i-user"/></svg><span title="${esc(p.teacher)}">${esc(p.teacher)}</span></div>` : ""}
+      ${!multi ? (teacherList(p.teachers) || teacherPlain(p.teacher)) : ""}
       ${subsHtml}
       ${hasDets ? `
       <div class="dets" id="${detsId}">
@@ -2164,7 +2236,7 @@ function renderFind(){
   hit.sort((a,b) => (a.s || "").localeCompare(b.s || "") || (a.gn || "").localeCompare(b.gn || ""));
   box.innerHTML = `<div class="fav-lbl">Найдено: ${hit.length}</div>` + hit.slice(0,120).map(x => `
     <button class="res-item" data-gid="${x.g}">
-      <span class="res-n">${esc(x.n || "")}</span>
+      ${x.ti ? avatar(teacherRec({id:x.ti, short:x.t}), "") : `<span class="res-n">${esc(x.n || "")}</span>`}
       <span class="res-m"><b>${esc(x.subj || "—")}</b>
         <span>${esc(x.gn || "")}${x.sg ? " · " + esc(x.sg) : ""}${x.t ? " · " + esc(x.t) : ""}` +
         `${x.r ? " · ауд. " + esc(x.r) : ""}${x.ch ? " · замена" : ""}</span></span>
@@ -2224,6 +2296,11 @@ async function boot(){
   // мета и индекс — не критичны, грузим молча
   getJSON(apiUrl("meta")).then(m => { state.meta = m; refreshBanners(); applyUpdLine(state.data || {}); }).catch(()=>{});
   getJSON(apiUrl("summary")).then(s => { state.summary = s; renderWeekStrip(); }).catch(()=>{});
+  // справочник преподавателей — необязательный: без него будут инициалы
+  getJSON(apiUrl("teachers")).then(t => {
+    state.teachers = t && t.teachers;
+    if(state.teachers && state.data && state.mode === "day") renderDay();
+  }).catch(()=>{});
 
   // запомненную группу показываем немедленно, не дожидаясь списка групп:
   // расписание и список едут параллельно, и сайт открывается «на своей» группе
