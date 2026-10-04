@@ -443,3 +443,21 @@ test("боковая колонка и основной блок существ�
   assert.ok(d.querySelector(".view.has-aside > .day-aside"), "справочные карточки вынесены вбок");
   dom.window.close();
 });
+
+test("на настоящих данных бота фото преподавателей подставляются", async () => {
+  const dom = await boot({ hash: "#/1042/2026-09-28", fetchOpts: { real: true } });
+  const imgs = all(dom, ".tc-row .ava img");
+  assert.ok(imgs.length > 0, "есть фотографии");
+  assert.ok(imgs.every((i) => /^data\/teachers\/\d+\.jpg$/.test(i.getAttribute("src"))),
+    "пути ведут в зеркало, а не на almetpt.ru");
+  assert.match(dom.window.document.querySelector("#view").textContent, /Преподаватель/);
+  dom.window.close();
+});
+
+test("на настоящих данных значков «замена» нет: весь день из таблицы замен", async () => {
+  const dom = await boot({ hash: "#/1042/2026-09-28", fetchOpts: { real: true } });
+  assert.ok(all(dom, ".pair-card").length >= 3);
+  assert.equal(all(dom, ".pc-chip.changed").length, 0);
+  assert.ok(dom.window.document.querySelector("[data-act=whychg]"), "есть пояснение");
+  dom.window.close();
+});

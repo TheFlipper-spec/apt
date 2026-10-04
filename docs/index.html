@@ -392,8 +392,10 @@ html[data-theme=dark] .blob{opacity:.3}
   background:var(--acc-soft);color:var(--acc);
   font-size:9.5px;font-weight:800;letter-spacing:.02em;
   box-shadow:0 0 0 1.5px var(--card),0 0 0 2.5px var(--line)}
-.ava img{width:100%;height:100%;object-fit:cover;display:block;
-  opacity:0;transition:opacity .35s var(--ease)}
+/* фото на сайте техникума портретные 300x400 — центр кадра приходится на
+   грудь, поэтому кружок смещаем к лицу */
+.ava img{width:100%;height:100%;object-fit:cover;object-position:50% 22%;
+  display:block;opacity:0;transition:opacity .35s var(--ease)}
 .ava img.on{opacity:1}
 .ava.big{width:46px;height:46px;font-size:14px}
 .pc-teacher .ava{margin-right:-1px}
