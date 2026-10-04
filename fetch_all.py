@@ -205,6 +205,18 @@ def main():
     copy_static(os.path.join(BASE, "static"), out)
     open(os.path.join(out, ".nojekyll"), "w").close()
 
+    # --- разовый снимок страниц педсостава (нужен, чтобы написать парсер) ---
+    raw_dir = os.path.join(out, "_raw")
+    if (not args.offline and not os.path.exists(raw_dir)
+            and not os.path.exists(os.path.join(data_dir, "teachers.json"))):
+        try:
+            sys.path.insert(0, os.path.join(BASE, "tools"))
+            import capture_teachers
+            got = capture_teachers.capture(raw_dir, http_get, log)
+            log("снимок педсостава:", ", ".join(got) or "пусто")
+        except Exception as e:
+            log("снимок педсостава не удался:", e)
+
     if args.offline:
         groups = (rjson(os.path.join(data_dir, "groups.json")) or {}).get("groups") or []
         if not groups:
