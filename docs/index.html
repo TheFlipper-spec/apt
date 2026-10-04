@@ -34,6 +34,7 @@
   --spring:cubic-bezier(.22,1.2,.36,1);
   --ease:cubic-bezier(.4,0,.2,1);
   --topbar-h:62px;
+  --maxw:1380px;--top-h:62px;
   --safe-b:env(safe-area-inset-bottom,0px);
 }
 html[data-theme=dark]{
@@ -89,7 +90,36 @@ html[data-theme=dark] .blob{opacity:.3}
   background-size:26px 26px}
 
 /* ======================================================= layout */
-.wrap{max-width:720px;margin:0 auto;padding:0 16px calc(90px + var(--safe-b))}
+.wrap{max-width:var(--maxw);margin:0 auto;padding:0 16px calc(90px + var(--safe-b))}
+
+/* --- на широких экранах: боковая колонка + контент, чтобы не пустовали поля --- */
+.layout{display:flex;flex-direction:column}
+.side{display:contents}
+.hero{order:1}.week{order:2}.tabs{order:3}.sel-panel{order:4}#view{order:5}
+
+@media (min-width:1000px){
+  .layout{display:grid;align-items:start;gap:0 22px;
+    grid-template-columns:clamp(258px,23vw,320px) minmax(0,1fr);
+    grid-template-areas:"side hero" "side view"}
+  .side{display:flex;flex-direction:column;gap:12px;grid-area:side;
+    position:sticky;top:calc(var(--top-h) + 12px)}
+  .hero{grid-area:hero}#view{grid-area:view}
+  .sel-panel,.tabs,.week{margin:0}
+  .week{gap:5px}
+  .week .day-b{padding:9px 0}
+}
+/* очень широкий экран: расписание слева, справочные карточки справа */
+@media (min-width:1360px){
+  .view.has-aside{display:grid;gap:0 20px;align-items:start;
+    grid-template-columns:minmax(0,1fr) clamp(280px,22vw,340px);
+    grid-template-areas:"strip strip" "nowbar aside" "time aside"}
+  .view.has-aside>.strip{grid-area:strip}
+  .view.has-aside>#nowbarWrap{grid-area:nowbar}
+  .view.has-aside>.timeline{grid-area:time}
+  .view.has-aside>.day-aside{grid-area:aside;position:sticky;
+    top:calc(var(--top-h) + 12px);display:flex;flex-direction:column;gap:12px}
+  .view.has-aside>.day-aside .info-card{margin:0}
+}
 
 /* ------------------------------------------------ top bar */
 .topbar{position:sticky;top:0;z-index:40;backdrop-filter:blur(18px) saturate(1.4);
@@ -100,7 +130,7 @@ html[data-theme=dark] .blob{opacity:.3}
   .topbar{background:color-mix(in srgb,var(--bg) 80%,transparent)}
 }
 .topbar.scrolled{border-bottom-color:var(--line);box-shadow:0 8px 30px -18px rgba(15,18,35,.25)}
-.topbar-in{max-width:720px;margin:0 auto;display:flex;align-items:center;gap:10px;
+.topbar-in{max-width:var(--maxw);margin:0 auto;display:flex;align-items:center;gap:10px;
   padding:12px 16px}
 .brand{display:flex;align-items:center;gap:11px;min-width:0}
 .logo{width:38px;height:38px;border-radius:12px;background:var(--acc-grad);
@@ -499,6 +529,11 @@ html[data-theme=dark] .blob{opacity:.3}
 .modal-bd{position:absolute;inset:0;background:rgba(10,12,22,.5);backdrop-filter:blur(5px);
   animation:fadein .25s both}
 @keyframes fadein{from{opacity:0}to{opacity:1}}
+.prose{font-size:13.5px;line-height:1.6;color:var(--ink-2)}
+.prose p{margin:0 0 11px}
+.prose p:last-child{margin-bottom:0}
+.prose b{color:var(--ink);font-weight:700}
+.prose .muted{font-size:12.5px;color:var(--ink-3)}
 .modal-win{position:relative;width:100%;max-width:560px;max-height:88svh;display:flex;
   flex-direction:column;background:var(--bg);border-radius:22px 22px 0 0;
   box-shadow:0 -10px 60px -12px rgba(0,0,0,.4);animation:up .35s var(--spring) both;
@@ -613,6 +648,9 @@ kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;fon
     <symbol id="i-pen" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M14.5 5.5 18.5 9.5 8 20H4v-4L14.5 5.5ZM12.5 7.5l4 4"/>
     </symbol>
+    <symbol id="i-info" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+      <circle cx="12" cy="12" r="9"/><path d="M12 11v5M12 8h.01"/>
+    </symbol>
     <symbol id="i-warn" viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
       <path d="M12 3 2.5 20h19L12 3ZM12 10v4.5M12 17.8h.01"/>
     </symbol>
@@ -683,6 +721,7 @@ kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;fon
 <div class="wrap">
   <div id="banners" aria-live="polite"></div>
 
+  <div class="layout">
   <!-- ===================== hero ===================== -->
   <div class="hero">
     <div class="hero-date">
@@ -699,7 +738,8 @@ kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;fon
     </div>
   </div>
 
-  <!-- ===================== week strip ===================== -->
+  <!-- ===================== боковая колонка ===================== -->
+  <aside class="side">
   <div class="week" id="weekStrip" role="group" aria-label="Дни недели"></div>
 
   <!-- ===================== mode tabs ===================== -->
@@ -738,9 +778,11 @@ kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;fon
       <div class="sel-hint">Долгое нажатие или <kbd>Shift</kbd>+клик — добавить в избранные</div>
     </div></div></div>
   </section>
+  </aside>
 
   <!-- ===================== dynamic view ===================== -->
   <main id="view" tabindex="-1"></main>
+  </div>
 
   <footer class="foot">
     <div>Данные: <a href="https://almetpt.ru/2020/site/schedulegroups" target="_blank" rel="noopener">almetpt.ru</a>
@@ -770,6 +812,30 @@ kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;fon
       </div>
       <div class="seg" id="findDates" role="group" aria-label="День поиска"></div>
       <div id="findRes"></div>
+    </div>
+  </div>
+</div>
+
+<div class="modal" id="mdChg" role="dialog" aria-modal="true" aria-labelledby="mdChgT">
+  <div class="modal-bd" data-close></div>
+  <div class="modal-win">
+    <div class="modal-head">
+      <b id="mdChgT">Почему всё помечено «замена»?</b>
+      <button class="icon-btn" data-close aria-label="Закрыть"><svg><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body prose">
+      <p>На сайте техникума расписание дня складывается из двух таблиц:
+         <b>основного расписания</b> и <b>таблицы замен</b>. У АПТ основное
+         расписание в большинстве дней просто не выкладывается — весь день
+         публикуется через таблицу замен.</p>
+      <p>Поэтому формально «заменой» оказывается каждая пара. Значок, который
+         горит всегда, ничего не сообщает, так что здесь он показывается
+         только когда заменена <b>часть</b> пар дня — вот тогда это
+         действительно важно.</p>
+      <p>Если весь день пришёл из таблицы замен, вместо значка у каждой пары
+         показывается одна спокойная пометка в сводке дня.</p>
+      <p class="muted">Проверить первоисточник всегда можно на
+         <a href="https://almetpt.ru/2020/site/schedulegroups" target="_blank" rel="noopener">almetpt.ru</a>.</p>
     </div>
   </div>
 </div>
@@ -1328,12 +1394,16 @@ function weekInfo(){
 
 /* ============================================================ навигация */
 function syncHash(){
-  const h = `#/${state.groupId || ""}/${state.date}`;
+  // дату в ссылку пишем только если это не сегодня: иначе при следующем
+  // заходе браузер восстановил бы вчерашний адрес и открыл вчерашний день
+  const h = state.date === todayISO()
+    ? `#/${state.groupId || ""}`
+    : `#/${state.groupId || ""}/${state.date}`;
   if(location.hash !== h) history.replaceState(null, "", h);
 }
 function parseHash(){
-  const m = location.hash.match(/^#\/(\d+)\/(\d{4}-\d{2}-\d{2})$/);
-  return m ? {id:m[1], date:m[2]} : null;
+  const m = location.hash.match(/^#\/(\d+)(?:\/(\d{4}-\d{2}-\d{2}))?$/);
+  return m ? {id:m[1], date:m[2] || todayISO()} : null;
 }
 function gotoDate(iso, dir){
   if(!validISO(iso)) return;
@@ -1454,6 +1524,7 @@ $("#view").addEventListener("click", e => {
     if(a.dataset.act === "today") gotoDate(todayISO());
     if(a.dataset.act === "ics") exportIcs();
     if(a.dataset.act === "copyhw") copyHomework();
+    if(a.dataset.act === "whychg") openModal("#mdChg");
     return;
   }
   const d = e.target.closest("[data-dets]");
@@ -1549,9 +1620,12 @@ function renderDay(){
     return s + (Number.isFinite(d) && d > 0 ? d : 0);
   }, 0);
   if(totalMin) chips.push(`<div class="chip"><svg><use href="#i-book"/></svg>${durText(totalMin)} занятий</div>`);
-  const nChanged = pairs.filter(p => p.changed).length;
-  if(nChanged) chips.push(`<div class="chip warn"><svg><use href="#i-warn"/></svg>${nChanged} ${plural(nChanged,"замена","замены","замен")}</div>`);
-  if(j.baseMissing) chips.push(`<div class="chip warn"><svg><use href="#i-warn"/></svg>только замены</div>`);
+  const chg = changeInfo(pairs, j);
+  state.chg = chg;
+  if(chg.perPair)
+    chips.push(`<div class="chip warn"><svg><use href="#i-warn"/></svg>${chg.n} ${plural(chg.n,"замена","замены","замен")}</div>`);
+  else if(chg.wholeDay)
+    chips.push(`<button class="chip btn" data-act="whychg" title="Почему так?"><svg><use href="#i-info"/></svg>расписание из таблицы замен</button>`);
   if(j.stale || j.fromCache) chips.push(`<div class="chip warn"><svg><use href="#i-off"/></svg>офлайн-копия</div>`);
   const nHw = pairs.reduce((s,p) => s + hwOf(p).length, 0);
   if(nHw) chips.push(`<button class="chip btn" data-act="copyhw"><svg><use href="#i-copy"/></svg>${nHw} ${plural(nHw,"задание","задания","заданий")}</button>`);
@@ -1576,8 +1650,9 @@ function renderDay(){
   });
   html += `</div>`;
 
+  let aside = "";
   if(j.consultations && j.consultations.length){
-    html += `<section class="info-card">
+    aside += `<section class="info-card">
       <button class="info-head" data-acc aria-expanded="false">
         <span class="info-ic"><svg><use href="#i-user"/></svg></span>
         <b>Консультации преподавателей</b><span class="cnt">${j.consultations.length}</span>
@@ -1588,8 +1663,9 @@ function renderDay(){
            <b style="white-space:normal">${esc(c)}</b></div></div>`).join("")}
       </div></div></section>`;
   }
-  html += grafCard(j);
-  view.innerHTML = `<div class="view">${html}</div>`;
+  aside += grafCard(j);
+  if(aside) html += `<div class="day-aside">${aside}</div>`;
+  view.innerHTML = `<div class="view${aside ? " has-aside" : ""}">${html}</div>`;
 
   applyUpdLine(j);
   updateNow();
@@ -1600,6 +1676,19 @@ function renderDay(){
 }
 function prefersReduced(){
   return window.matchMedia && matchMedia("(prefers-reduced-motion: reduce)").matches;
+}
+/* АПТ почти всегда публикует день целиком через таблицу замен, поэтому класс
+   changesPair стоит на каждой паре. Отметка «замена» имеет смысл только тогда,
+   когда заменена часть пар; если помечен весь день — это не замена, а способ
+   публикации, и значок превращается в шум. */
+function changeInfo(pairs, j){
+  const n = pairs.filter(p => p.changed).length;
+  const all = n > 0 && n === pairs.length;
+  return {
+    n, all,
+    perPair: n > 0 && !all,          // показывать значок у каждой пары
+    wholeDay: all || !!(j && j.baseMissing),
+  };
 }
 function hwOf(p){
   const own = p.homework || [];
@@ -1635,7 +1724,8 @@ function pairCard(p, idx){
   const chips = [];
   if(!multi) chips.push(roomChip(p.room, p.roomTitle));
   if(!multi && p.subgroup) chips.push(`<span class="pc-chip"><svg><use href="#i-group"/></svg>${esc(p.subgroup)}</span>`);
-  if(p.changed) chips.push(`<span class="pc-chip changed" title="Пара отличается от основного расписания"><svg><use href="#i-warn"/></svg>замена</span>`);
+  if(p.changed && state.chg && state.chg.perPair)
+    chips.push(`<span class="pc-chip changed" title="Эта пара отличается от основного расписания"><svg><use href="#i-warn"/></svg>замена</span>`);
 
   const dur = t2min(p.end) - t2min(p.start);
   const detsId = `dets-${idx}`;
@@ -1663,7 +1753,7 @@ function pairCard(p, idx){
       <div class="vline"></div>
       <div class="t2">${esc(p.end || "")}</div>
     </div>
-    <article class="pair-card${p.changed ? " changed" : ""}" data-i="${idx}"
+    <article class="pair-card${p.changed && state.chg && state.chg.perPair ? " changed" : ""}" data-i="${idx}"
          style="animation:rise .5s ${(.04 + idx*.06).toFixed(2)}s var(--spring) both">
       <div class="pc-top">
         <span class="pc-num">${esc(p.n || "?")}</span>
@@ -1758,7 +1848,9 @@ function renderWeek(){
     const d = state.week.get(iso);
     const pairs = d ? sortPairs(d.pairs) : [];
     total += pairs.length;
-    changed += pairs.filter(p => p.changed).length;
+    const nCh = pairs.filter(p => p.changed).length;
+    const allChanged = nCh > 0 && nCh === pairs.length;   // весь день из таблицы замен
+    changed += allChanged ? 0 : nCh;
     pairs.forEach(p => hwRows(p).forEach(r => hw.push({iso, subj: hwLabel(r), text: r.text})));
     const dd = fromISO(iso);
     let badge, cls = "";
@@ -1770,7 +1862,7 @@ function renderWeek(){
     const range = pairs.length && pairs[0].start && pairs[pairs.length-1].end
       ? `${pairs[0].start} — ${pairs[pairs.length-1].end}` : "";
     const items = pairs.map(p => `
-      <div class="wk-item${p.changed ? " ch" : ""}">
+      <div class="wk-item${p.changed && !allChanged ? " ch" : ""}">
         <span class="wt">${esc(p.start || "")}</span>
         <span class="ws">${esc(p.subject || "—")}</span>
         ${p.room ? `<span class="wr">${/on.?line/i.test(p.room) ? esc(p.room) : "ауд. " + esc(p.room)}</span>` : ""}
@@ -1790,7 +1882,8 @@ function renderWeek(){
   const chips = [
     `<div class="chip"><svg><use href="#i-list"/></svg>${total} ${plural(total,"пара","пары","пар")} за неделю</div>`,
   ];
-  if(changed) chips.push(`<div class="chip warn"><svg><use href="#i-warn"/></svg>${changed} ${plural(changed,"замена","замены","замен")}</div>`);
+  if(changed && changed < total)
+    chips.push(`<div class="chip warn"><svg><use href="#i-warn"/></svg>${changed} ${plural(changed,"замена","замены","замен")}</div>`);
   if(hw.length) chips.push(`<button class="chip btn" data-act="copyhw"><svg><use href="#i-copy"/></svg>${hw.length} ${plural(hw.length,"задание","задания","заданий")}</button>`);
   chips.push(`<button class="chip btn" data-act="ics"><svg><use href="#i-dl"/></svg>неделя в календарь</button>`);
 
@@ -2112,10 +2205,12 @@ async function boot(){
   $("#tabDay").setAttribute("aria-selected", String(state.mode === "day"));
   $("#tabWeek").setAttribute("aria-selected", String(state.mode === "week"));
 
+  // ссылка важнее сохранённой группы, но сохранённая — важнее «какой-нибудь»
   const h = parseHash();
   if(h){ state.groupId = h.id; if(validISO(h.date)) state.date = h.date; }
   if(location.hash === "#today") state.date = todayISO();
   if(location.hash === "#week") state.mode = "week";
+  if(state.groupName) updateSelHead();   // имя из localStorage — сразу, без ожидания
 
   const di = $("#dateInput");
   di.min = addDays(todayISO(), -370);
@@ -2129,6 +2224,10 @@ async function boot(){
   // мета и индекс — не критичны, грузим молча
   getJSON(apiUrl("meta")).then(m => { state.meta = m; refreshBanners(); applyUpdLine(state.data || {}); }).catch(()=>{});
   getJSON(apiUrl("summary")).then(s => { state.summary = s; renderWeekStrip(); }).catch(()=>{});
+
+  // запомненную группу показываем немедленно, не дожидаясь списка групп:
+  // расписание и список едут параллельно, и сайт открывается «на своей» группе
+  const early = state.groupId ? reload() : null;
 
   try{
     const gj = await getJSON(apiUrl("groups"));
@@ -2144,6 +2243,7 @@ async function boot(){
         "Не удалось получить список групп с сайта техникума.", [{act:"retry", label:"Повторить"}]);
       return;
     }
+    const sameGroup = +g.id === +state.groupId;
     state.groupId = g.id; state.groupName = g.name;
     if(g.course) state.course = g.course;
     localStorage.setItem(LS.group, g.id);
@@ -2152,8 +2252,14 @@ async function boot(){
 
     renderCourses(); renderGroups(); renderFav(); updateSelHead();
     syncHash();
-    reload();
+    // если группа та же, что мы уже начали грузить, — второй запрос не нужен
+    if(!(sameGroup && early)) reload();
+    else early.catch(()=>{});
   }catch(e){
+    if(state.data) {                       // расписание уже показано — список групп не критичен
+      $("#selName").textContent = "Список групп недоступен";
+      return;
+    }
     $("#selName").textContent = "Ошибка загрузки";
     $("#view").innerHTML = stateView(state.offline ? "i-off" : "i-net",
       state.offline ? "Нет соединения" : "Не удалось подключиться",
