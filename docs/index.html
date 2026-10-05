@@ -145,7 +145,7 @@ html[data-theme=dark] .blob{opacity:.3}
   display:grid;place-items:center;box-shadow:0 6px 16px -6px rgba(99,102,241,.55);
   flex:none;transition:transform .5s var(--spring)}
 .logo:hover{transform:rotate(-8deg) scale(1.06)}
-.logo svg{width:21px;height:21px;stroke:#fff}
+.logo-img{display:block;width:38px;height:38px;border-radius:12px}
 .brand-t{line-height:1.12;min-width:0}
 .brand-t b{font-size:15.5px;font-weight:750;letter-spacing:-.01em;display:block;
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -826,7 +826,7 @@ kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;fon
 <header class="topbar" id="topbar">
   <div class="topbar-in">
     <div class="brand">
-      <div class="logo" aria-hidden="true"><svg><use href="#i-logo"/></svg></div>
+      <div class="logo" aria-hidden="true"><img class="logo-img" src="icons/icon.svg" alt=""></div>
       <div class="brand-t"><b>Расписание АПТ</b><span>Альметьевский политехнический техникум</span></div>
     </div>
     <nav class="top-actions" aria-label="Действия">
