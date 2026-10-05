@@ -1811,7 +1811,7 @@ function renderDay(){
     if(next && a !== null && b !== null && b > a){
       const gap = b - a;
       html += `<div class="brk${gap >= 20 ? " gap" : ""}"><div class="ln"></div>` +
-        `<div class="bz"><svg><use href="#i-coffee"/></svg>${gap >= 20 ? "окно" : "перемена"} · ${durText(gap)}</div>` +
+        `<div class="bz"><svg><use href="#i-coffee"/></svg>${gap >= 20 ? "большая перемена" : "перемена"} · ${durText(gap)}</div>` +
         `<div class="ln"></div></div>`;
     }
   });

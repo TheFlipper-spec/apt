@@ -123,11 +123,11 @@ test("пара по подгруппам показывается отдельн
   dom.window.close();
 });
 
-test("перемены и окна считаются между парами", async () => {
+test("перемены и большие перемены считаются между парами", async () => {
   const dom = await boot({ hash: "#/9001/2026-10-05" });
   const brks = all(dom, ".brk").map((b) => b.textContent.replace(/\s+/g, " ").trim());
   assert.ok(brks.length >= 3);
-  assert.ok(brks.some((b) => /перемена/.test(b)));
+  assert.ok(brks.some((b) => /большая перемена/.test(b)));
   assert.ok(brks.every((b) => !/NaN|undefined/.test(b)), "нет NaN в длительности");
   dom.window.close();
 });
