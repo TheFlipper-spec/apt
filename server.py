@@ -32,6 +32,10 @@ import parser as P
 BASE = os.path.dirname(os.path.abspath(__file__))
 STATIC_DIR = os.path.join(BASE, "static")
 DATA_DIR = os.path.join(BASE, "data")
+# Локальное превью должно работать и без доступа к almetpt.ru. В docs/ уже
+# лежит сохранённое статическое зеркало, поэтому используем его как запасной
+# источник для live API, не подменяя основную папку static/.
+MIRROR_DATA_DIR = os.path.join(BASE, "docs", "data")
 CACHE_DIR = os.path.join(DATA_DIR, "cache")
 os.makedirs(CACHE_DIR, exist_ok=True)
 
@@ -143,6 +147,8 @@ def get_day(group_id, date):
             return ent["data"]
     url = f"{SITE}/2020/site/schedule/group/{group_id}/{date}"
     disk_path = os.path.join(CACHE_DIR, f"day_{key}.json")
+    mirror_path = os.path.join(MIRROR_DATA_DIR, "d", str(group_id), f"{date}.json")
+    bundled_path = os.path.join(DATA_DIR, "d", str(group_id), f"{date}.json")
     try:
         html = http_get(url)
         if "Страничка не найдена" in html:
@@ -157,8 +163,13 @@ def get_day(group_id, date):
         return data
     except Exception as e:
         print("day fetch failed:", url, e, file=sys.stderr)
-        saved = _read_json(disk_path)
-        if saved and saved.get("ok"):
+        # В локальном preview сеть до almetpt.ru может быть недоступна. Сначала
+        # смотрим live-кэш, затем сохранённый docs/зеркальный день и только
+        # потом сообщаем фронтенду об ошибке.
+        saved = next((item for item in
+                      (_read_json(disk_path), _read_json(mirror_path), _read_json(bundled_path))
+                      if item and item.get("ok")), None)
+        if saved:
             saved["stale"] = True
             with _lock:
                 _mem["days"][key] = {"data": saved, "ts": now}
@@ -231,7 +242,17 @@ class H(BaseHTTPRequestHandler):
         if rel.endswith("/"):
             rel += "index.html"
         full = os.path.normpath(os.path.join(STATIC_DIR, rel))
-        if not full.startswith(STATIC_DIR) or not os.path.isfile(full):
+        if not full.startswith(STATIC_DIR):
+            self._send(404, {"ok": False, "error": "not found"})
+            return
+        # static/ — исходники интерфейса, docs/data/ — локальное зеркало
+        # данных. Это нужно только для preview/live-сервера, на Pages данные
+        # лежат рядом с docs/index.html и отдаются напрямую.
+        if not os.path.isfile(full) and rel.startswith("data/"):
+            mirror = os.path.normpath(os.path.join(MIRROR_DATA_DIR, rel[5:]))
+            if mirror.startswith(MIRROR_DATA_DIR) and os.path.isfile(mirror):
+                full = mirror
+        if not os.path.isfile(full):
             self._send(404, {"ok": False, "error": "not found"})
             return
         ctype, _ = mimetypes.guess_type(full)
