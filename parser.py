@@ -317,6 +317,10 @@ def _parse_pair_card(card):
         return None
     n_rom = first(header, lambda n: n.tag == "span" and n.has_class("h3"))
     numeral = clean(n_rom.text()) if n_rom else ""
+    # На странице встречаются дополнительные карточки практики/аудиторий
+    # без номера пары. Это не занятие и не должно попадать в расписание.
+    if not numeral or roman_to_int(numeral) <= 0:
+        return None
 
     time_spans = find_all(header, lambda n: n.tag == "span")
     t_start = t_end = ""
