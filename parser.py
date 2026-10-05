@@ -169,13 +169,38 @@ BELLS_FALLBACK = [
 
 
 def _parse_time(text):
-    """'0930 - 1050' (из sup-разметки) -> ('09:30','10:50')"""
-    nums = re.findall(r"\d{1,2}", text.replace("\n", ""))
-    nums = [x.zfill(2) for x in nums]
-    if len(nums) >= 4:
-        return (f"{nums[0]}:{nums[1]}", f"{nums[2]}:{nums[3]}")
-    if len(nums) == 2:
-        return (f"{nums[0]}:{nums[1]}", "")
+    """Разобрать фактическое время из заголовка пары.
+
+    На almetpt.ru встречаются и ``08<sup>00</sup> - 09<sup>20</sup>``,
+    и обычные ``08:00 - 09:20``. Важно брать это значение с карточки пары,
+    а не вычислять его из номера: длительность и перемены у разных дней
+    действительно отличаются (1:30, 1:10 и т. п.).
+    """
+    raw = clean(text).replace("\u2013", "-").replace("\u2014", "-")
+
+    def pair(hour, minute):
+        h, m = int(hour), int(minute)
+        if h > 23 or m > 59:
+            return None
+        return f"{h:02d}:{m:02d}"
+
+    # Форматы 08:00, 8.00 и 08 00 (последний получается из sup-разметки).
+    split = re.findall(r"(?<!\d)(\d{1,2})\s*(?::|\.)\s*(\d{2})(?!\d)", raw)
+    if len(split) >= 2:
+        a, b = pair(*split[0]), pair(*split[1])
+        return (a or "", b or "")
+    split = re.findall(r"(?<!\d)(\d{1,2})\s+(\d{2})(?!\d)", raw)
+    if len(split) >= 2:
+        a, b = pair(*split[0]), pair(*split[1])
+        return (a or "", b or "")
+
+    # Старый компактный вид 0800 - 0920.
+    compact = re.findall(r"(?<!\d)(\d{3,4})(?!\d)", raw)
+    if len(compact) >= 2:
+        def compact_time(value):
+            value = value.zfill(4)
+            return pair(value[:2], value[2:])
+        return (compact_time(compact[0]) or "", compact_time(compact[1]) or "")
     return ("", "")
 
 
@@ -598,31 +623,61 @@ def parse_teacher_card(html_text):
     Фото на сайте лежит по предсказуемому адресу /img/staffs/<id>.jpeg,
     но берём его из разметки — вдруг расширение другое.
     """
-    out = {"full": "", "position": "", "photo": ""}
+    out = {"full": "", "position": "", "photo": "", "facts": []}
 
     m = re.search(r"""<img[^>]*src=['"]([^'"]*?/img/staffs/[^'"]+)['"]""", html_text)
     if m:
         out["photo"] = m.group(1)
 
     root = build_dom(html_text)
+    teacher_card = first(root, lambda x: x.attrs.get("id") == "teacherCard") or root
 
-    # ФИО — заголовок рядом с «(<id>)»
-    for n in find_all(root, lambda x: x.tag in ("h1", "h2", "h3", "h4", "h5")):
+    # ФИО — заголовок карточки рядом с «(<id>)». Ищем внутри teacherCard,
+    # чтобы случайно не принять за ФИО имя директора в шапке сайта.
+    for n in find_all(teacher_card, lambda x: x.tag in ("h1", "h2", "h3", "h4", "h5")):
         t = clean(n.text())
         # «Юрасов Данила Дмитриевич» — три слова с заглавной
         if re.fullmatch(r"[А-ЯЁ][а-яё-]+(?:\s+[А-ЯЁ][а-яё-]+){1,2}", t):
             out["full"] = t
             break
 
-    # «Должность: Преподаватель информационных технологий Категория: Высшая»
-    txt = clean(re.sub(r"<[^>]+>", " ", html_text))
-    stop = r"(?:Категория:|Образование:|Работает:|Общий стаж:|Стаж|$)"
-    m = re.search(r"Должность:\s*(.{2,160}?)\s*" + stop, txt)
-    if m:
-        out["position"] = clean(m.group(1)).rstrip(",;")
-    m = re.search(r"Категория:\s*([А-Яа-яЁё ]{3,30}?)\s*(?:Образование:|Работает:|Общий стаж:|$)", txt)
-    if m:
-        out["category"] = clean(m.group(1))
+    # Карточка содержит не только должность: образование, дату начала
+    # работы и общий стаж. Сохраняем каждую пару «подпись — значение», чтобы
+    # фронтенд мог показать настоящую карточку, а не только ФИО и должность.
+    txt = teacher_card.norm_text()
+    labels = ["Должность", "Категория", "Образование", "Работает", "Общий стаж",
+              "Педагогический стаж"]
+
+    def fact_value(label):
+        others = [x for x in labels if x != label]
+        stop = "|".join(re.escape(x) + r"\s*:" for x in others)
+        # Значение идёт до следующей подписи либо до конца карточки.
+        pat = rf"(?<!\w){re.escape(label)}\s*:\s*(.+?)(?=\s+(?:{stop})|$)"
+        hit = re.search(pat, txt, re.I)
+        return clean(hit.group(1)).rstrip(",;") if hit else ""
+
+    position = fact_value("Должность")
+    if position:
+        out["position"] = position
+    for label in ("Категория", "Образование", "Работает", "Общий стаж",
+                  "Педагогический стаж"):
+        value = fact_value(label)
+        if value and not any(x["label"] == label for x in out["facts"]):
+            out["facts"].append({"label": label, "value": value})
+    if out.get("position") and not any(x["label"] == "Должность" for x in out["facts"]):
+        out["facts"].insert(0, {"label": "Должность", "value": out["position"]})
+    if out["facts"]:
+        category = next((x["value"] for x in out["facts"] if x["label"] == "Категория"), "")
+        if category:
+            out["category"] = category
+
+    # Ссылка нужна даже в статическом режиме: на официальной карточке могут
+    # появиться новые разделы (повышение квалификации и достижения), которых
+    # нет в расписании и которые сайт подгружает отдельно.
+    mid = re.search(r"\((\d+)\)", teacher_card.text())
+    if mid:
+        out["id"] = int(mid.group(1))
+        out["sourceUrl"] = f"https://almetpt.ru/2020/site/html/teacherinfo/{mid.group(1)}"
     return out
 
 

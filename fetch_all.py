@@ -50,7 +50,7 @@ TZ = ZoneInfo("Europe/Moscow")
 
 # ----------------------------------------------------------------- TTL (сек)
 TTL_TODAY = 10 * 60          # сегодня — меняется чаще всего (замены, темы, Д/З)
-TTL_NEAR = 20 * 60           # ±3 дня вокруг сегодня
+TTL_NEAR = 10 * 60           # завтра и ближайшие 2 дня: публикация часто в 12–14 МСК
 TTL_FAR = 3 * 3600           # дальше по окну — расписание там обычно ещё не выложено
 TTL_SUNDAY = 12 * 3600       # воскресенья почти всегда пустые
 TTL_PAST = 12 * 3600         # прошлое без расписания — вдруг выложат задним числом
@@ -515,7 +515,8 @@ def collect_teachers(data_dir, dates, workers=4):
     photo_dir = os.path.join(data_dir, "teachers")
 
     todo = [tid for tid in seen
-            if now - int((old.get(str(tid)) or {}).get("checkedAt", 0)) > TEACHER_TTL]
+            if (now - int((old.get(str(tid)) or {}).get("checkedAt", 0)) > TEACHER_TTL
+                or "facts" not in (old.get(str(tid)) or {}))]
     log(f"Педсостав: встречено {len(seen)}, обновить нужно {len(todo)}")
 
     out = dict(old)
@@ -565,9 +566,14 @@ def collect_teachers(data_dir, dates, workers=4):
                 rec["id"] = tid
                 if card.get("full"):
                     rec["full"] = card["full"]
-                for k in ("position", "category"):
+                for k in ("position", "category", "sourceUrl"):
                     if card.get(k):
                         rec[k] = card[k]
+                if "facts" in card:
+                    rec["facts"] = card.get("facts") or []
+                # Даже если парсер не нашёл id в заголовке, URL строится по
+                # id из расписания — он ведёт на официальную карточку.
+                rec.setdefault("sourceUrl", f"{SITE}/2020/site/html/teacherinfo/{tid}")
                 if photo_rel:
                     rec["photo"] = photo_rel
                 elif src:

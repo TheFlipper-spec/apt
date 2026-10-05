@@ -110,12 +110,22 @@ html[data-theme=dark] .blob{opacity:.3}
   .tabs button{padding:0 16px;flex:none}
   .sel-panel{margin:0;position:relative;z-index:30;width:clamp(240px,24vw,320px);
     overflow:visible}
-  /* выпадающий список групп не раздвигает строку управления */
+  /* выпадающий список групп не раздвигает строку управления. Не используем
+     здесь grid-template-rows:0fr: у position:absolute нет высоты grid-строки,
+     поэтому старый вариант на десктопе раскрывался в элемент нулевой высоты. */
   .sel-panel .sel-body{position:absolute;left:auto;right:0;top:calc(100% + 7px);
-    width:min(420px,88vw);background:var(--card);border-radius:var(--r-lg);
-    overflow:hidden}
-  .sel-panel.open .sel-body{border:1px solid var(--line);box-shadow:var(--sh-2)}
+    width:min(420px,88vw);max-height:0;overflow:hidden;visibility:hidden;
+    opacity:0;transform:translateY(-6px);pointer-events:none;
+    background:var(--card);border-radius:var(--r-lg);
+    transition:max-height .35s var(--ease),opacity .2s var(--ease),
+               transform .35s var(--spring),visibility 0s linear .35s}
+  .sel-panel.open .sel-body{max-height:min(78vh,680px);overflow:visible;
+    visibility:visible;opacity:1;transform:none;pointer-events:auto;
+    border:1px solid var(--line);box-shadow:var(--sh-2);
+    transition:max-height .35s var(--ease),opacity .2s var(--ease),
+               transform .35s var(--spring),visibility 0s}
   .sel-panel.open .sel-inner{border-top:0}
+  .sel-panel .sel-body-in{overflow:visible}
   .hero{padding-top:26px}
 }
 
@@ -259,6 +269,12 @@ html[data-theme=dark] .blob{opacity:.3}
 .sel-body{display:grid;grid-template-rows:0fr;transition:grid-template-rows .45s var(--spring)}
 .sel-panel.open .sel-body{grid-template-rows:1fr}
 .sel-body-in{overflow:hidden}
+/* Эти правила должны идти после базового overflow:hidden: на десктопе
+   список вынесен из потока и не должен обрезаться границами панели. */
+@media (min-width:860px){
+  .sel-panel{overflow:visible}
+  .sel-panel .sel-body-in{overflow:visible}
+}
 .sel-inner{padding:2px 14px 14px;border-top:1px solid var(--line)}
 .sub-pick{margin-top:13px;padding-bottom:13px;border-bottom:1px dashed var(--line)}
 .sub-pick .seg{margin-top:7px}
@@ -409,6 +425,10 @@ html[data-theme=dark] .blob{opacity:.3}
 .pc-teacher .ava{margin-right:-1px}
 .tc-list{display:flex;flex-direction:column;gap:9px;margin-top:10px}
 .tc-row{display:flex;align-items:center;gap:9px;min-width:0}
+button.tc-row{width:100%;padding:2px 4px;border-radius:10px;text-align:left;cursor:pointer;
+  transition:background .2s,transform .25s var(--spring)}
+button.tc-row:hover{background:var(--bg-soft);transform:translateX(2px)}
+button.tc-row:focus-visible{outline-offset:3px}
 .tc-tx{min-width:0;line-height:1.25}
 .tc-tx b{display:block;font-size:12.8px;font-weight:650;color:var(--ink-2);
   white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
@@ -570,6 +590,24 @@ html[data-theme=dark] .blob{opacity:.3}
 .prose p:last-child{margin-bottom:0}
 .prose b{color:var(--ink);font-weight:700}
 .prose .muted{font-size:12.5px;color:var(--ink-3)}
+.teacher-profile{padding-bottom:4px}
+.teacher-main{display:flex;align-items:flex-start;gap:14px;padding:2px 0 15px;
+  border-bottom:1px solid var(--line)}
+.teacher-photo{width:82px;height:104px;object-fit:cover;object-position:50% 22%;
+  border-radius:14px;background:var(--bg-soft);box-shadow:0 0 0 1px var(--line);flex:none}
+.teacher-name{font-size:18px;font-weight:800;line-height:1.2;letter-spacing:-.02em}
+.teacher-position{margin-top:6px;font-size:13px;line-height:1.4;color:var(--ink-2);font-weight:600}
+.teacher-facts{margin-top:4px}
+.teacher-fact{display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--line)}
+.teacher-fact:last-child{border-bottom:0}
+.teacher-fact b{width:126px;flex:none;color:var(--ink-3);font-size:11px;font-weight:800;
+  letter-spacing:.06em;text-transform:uppercase}
+.teacher-fact span{font-size:13px;line-height:1.45;color:var(--ink-2);font-weight:550}
+.teacher-source{display:inline-flex;align-items:center;gap:7px;margin-top:14px;padding:10px 13px;
+  border-radius:11px;background:var(--acc-soft);color:var(--acc);font-size:12.5px;font-weight:750;
+  text-decoration:none}
+.teacher-source:hover{filter:brightness(1.06)}
+.teacher-empty{padding:5px 0 2px;color:var(--ink-2);font-size:13px;line-height:1.5}
 .modal-win{position:relative;width:100%;max-width:560px;max-height:88svh;display:flex;
   flex-direction:column;background:var(--bg);border-radius:22px 22px 0 0;
   box-shadow:0 -10px 60px -12px rgba(0,0,0,.4);animation:up .35s var(--spring) both;
@@ -912,27 +950,14 @@ kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;fon
   </div>
 </div>
 
-<div class="modal" id="mdChg" role="dialog" aria-modal="true" aria-labelledby="mdChgT">
+<div class="modal" id="mdTeacher" role="dialog" aria-modal="true" aria-labelledby="mdTeacherT">
   <div class="modal-bd" data-close></div>
   <div class="modal-win">
     <div class="modal-head">
-      <b id="mdChgT">Почему всё помечено «замена»?</b>
+      <b id="mdTeacherT">Преподаватель</b>
       <button class="icon-btn" data-close aria-label="Закрыть"><svg><use href="#i-x"/></svg></button>
     </div>
-    <div class="modal-body prose">
-      <p>На сайте техникума расписание дня складывается из двух таблиц:
-         <b>основного расписания</b> и <b>таблицы замен</b>. У АПТ основное
-         расписание в большинстве дней просто не выкладывается — весь день
-         публикуется через таблицу замен.</p>
-      <p>Поэтому формально «заменой» оказывается каждая пара. Значок, который
-         горит всегда, ничего не сообщает, так что здесь он показывается
-         только когда заменена <b>часть</b> пар дня — вот тогда это
-         действительно важно.</p>
-      <p>Если весь день пришёл из таблицы замен, вместо значка у каждой пары
-         показывается одна спокойная пометка в сводке дня.</p>
-      <p class="muted">Проверить первоисточник всегда можно на
-         <a href="https://almetpt.ru/2020/site/schedulegroups" target="_blank" rel="noopener">almetpt.ru</a>.</p>
-    </div>
+    <div class="modal-body" id="teacherBody"></div>
   </div>
 </div>
 
@@ -1268,6 +1293,36 @@ document.addEventListener("keydown", e => {
   if(k === "e" || k === "у"){ exportIcs(); return; }
   if(e.key === "?"){ openModal("#mdKbd"); }
 });
+
+/* ============================================================ преподаватель */
+function teacherInfoHtml(rec){
+  const facts = (rec.facts || []).filter(x => x && x.label && x.value).map(x =>
+    `<div class="teacher-fact"><b>${esc(x.label)}</b><span>${esc(x.value)}</span></div>`).join("");
+  const photo = rec.photo
+    ? `<img class="teacher-photo" src="${esc(dataUrl(rec.photo))}" alt="Фото: ${esc(rec.full)}"
+         onerror="this.remove()">`
+    : "";
+  const pos = rec.position ? `<div class="teacher-position">${esc(rec.position)}</div>` : "";
+  const source = rec.sourceUrl
+    ? `<a class="teacher-source" href="${esc(rec.sourceUrl)}" target="_blank" rel="noopener">
+         Открыть полную карточку на сайте АПТ
+       </a>` : "";
+  return `<div class="teacher-profile">
+    <div class="teacher-main">${photo}<div>
+      <div class="teacher-name">${esc(rec.full || rec.short || "Преподаватель")}</div>${pos}
+    </div></div>
+    ${facts ? `<div class="teacher-facts">${facts}</div>` :
+      `<div class="teacher-empty">В локальном справочнике пока есть только краткая информация.
+        Полная карточка преподавателя открывается на сайте техникума.</div>`}
+    ${source}
+  </div>`;
+}
+function openTeacher(id){
+  const rec = teacherRec({id:+id});
+  $("#mdTeacherT").textContent = rec.full || "Преподаватель";
+  $("#teacherBody").innerHTML = teacherInfoHtml(rec);
+  openModal("#mdTeacher");
+}
 
 /* ============================================================ модальные окна */
 let _lastFocus = null;
@@ -1631,13 +1686,14 @@ function stateView(icon, title, html, acts){
          `<h3>${title}</h3><p>${html}</p>${a ? `<div class="acts">${a}</div>` : ""}</div>`;
 }
 $("#view").addEventListener("click", e => {
+  const teacher = e.target.closest("[data-teacher]");
+  if(teacher){ openTeacher(teacher.dataset.teacher); return; }
   const a = e.target.closest("[data-act]");
   if(a){
     if(a.dataset.act === "retry") reload(true);
     if(a.dataset.act === "today") gotoDate(todayISO());
     if(a.dataset.act === "ics") exportIcs();
     if(a.dataset.act === "copyhw") copyHomework();
-    if(a.dataset.act === "whychg") openModal("#mdChg");
     return;
   }
   const d = e.target.closest("[data-dets]");
@@ -1733,12 +1789,10 @@ function renderDay(){
     return s + (Number.isFinite(d) && d > 0 ? d : 0);
   }, 0);
   if(totalMin) chips.push(`<div class="chip"><svg><use href="#i-book"/></svg>${durText(totalMin)} занятий</div>`);
-  const chg = changeInfo(pairs, j);
+  const chg = changeInfo(pairs);
   state.chg = chg;
   if(chg.perPair)
     chips.push(`<div class="chip warn"><svg><use href="#i-warn"/></svg>${chg.n} ${plural(chg.n,"замена","замены","замен")}</div>`);
-  else if(chg.wholeDay)
-    chips.push(`<button class="chip btn" data-act="whychg" title="Почему так?"><svg><use href="#i-info"/></svg>расписание из таблицы замен</button>`);
   if(j.stale || j.fromCache) chips.push(`<div class="chip warn"><svg><use href="#i-off"/></svg>офлайн-копия</div>`);
   const nHw = pairs.reduce((s,p) => s + hwOf(p).length, 0);
   if(nHw) chips.push(`<button class="chip btn" data-act="copyhw"><svg><use href="#i-copy"/></svg>${nHw} ${plural(nHw,"задание","задания","заданий")}</button>`);
@@ -1857,13 +1911,12 @@ function renderSubPick(){
   if(lbl) lbl.textContent = state.sub ? `${state.sub} п/гр.` : "обе";
 }
 
-function changeInfo(pairs, j){
+function changeInfo(pairs){
   const n = pairs.filter(p => p.changed).length;
   const all = n > 0 && n === pairs.length;
   return {
-    n, all,
-    perPair: n > 0 && !all,          // показывать значок у каждой пары
-    wholeDay: all || !!(j && j.baseMissing),
+    n,
+    perPair: n > 0 && !all,          // показывать значок только при частичной замене
   };
 }
 function hwOf(p){
@@ -1897,7 +1950,11 @@ function teacherRec(t){
     full: base.full || (t && t.full) || (t && t.short) || "",
     short: (t && t.short) || base.short || base.full || "",
     position: base.position || "",
+    category: base.category || "",
+    facts: Array.isArray(base.facts) ? base.facts : [],
     photo: base.photo || base.photoUrl || "",
+    sourceUrl: base.sourceUrl || base.url ||
+      (id ? `https://almetpt.ru/2020/site/html/teacherinfo/${id}` : ""),
   };
 }
 /* Аватар — это только фотография. Если её нет или она не загрузилась,
@@ -1914,11 +1971,17 @@ function teacherList(list){
   if(!recs.length) return "";
   const seen = new Set();
   const uniq = recs.filter(r => { const k = r.id || r.full; if(seen.has(k)) return false; seen.add(k); return true; });
-  return `<div class="tc-list">` + uniq.map(r => `
-    <div class="tc-row">${avatar(r)}
+  return `<div class="tc-list">` + uniq.map(r => {
+    const tag = r.id ? "button" : "div";
+    const attrs = r.id
+      ? ` type="button" class="tc-row teacher-trigger" data-teacher="${esc(r.id)}"` :
+        ` class="tc-row"`;
+    return `<${tag}${attrs}>${avatar(r)}
       <span class="tc-tx"><b title="${esc(r.full)}">${esc(r.full || r.short)}</b>
       ${r.position ? `<span title="${esc(r.position)}">${esc(r.position)}</span>` : ""}</span>
-    </div>`).join("") + `</div>`;
+      ${r.id ? `<span class="sr-only">Открыть информацию о преподавателе</span>` : ""}
+    </${tag}>`;
+  }).join("") + `</div>`;
 }
 /* запасной вариант, когда id преподавателя в данных нет (старое зеркало) */
 function teacherPlain(text){
@@ -2207,7 +2270,13 @@ document.addEventListener("visibilitychange", () => {
   if(state.mode === "day" && state.data && state.data.date && state.data.date !== state.date) reload();
 });
 setInterval(() => {
-  if(document.visibilityState === "visible" && state.date === todayISO()) reload(true);
+  if(document.visibilityState !== "visible") return;
+  const today = todayISO();
+  const isNear = state.date >= today && state.date <= addDays(today, 3);
+  // Пока расписание на сегодня/завтра не опубликовано, зеркало может
+  // обновиться следующим запуском бота. Проверяем и будущий выбранный день,
+  // а не только «сегодня», чтобы студенту не приходилось обновлять вручную.
+  if(isNear && state.data && (!state.data.published || state.date === today)) reload(true);
 }, 10*60*1000);
 
 /* ============================================================ домашка */
@@ -2236,13 +2305,19 @@ function icsStamp(iso, hhmm){
   return `${t.getUTCFullYear()}${pad(t.getUTCMonth()+1)}${pad(t.getUTCDate())}` +
          `T${pad(t.getUTCHours())}${pad(t.getUTCMinutes())}00Z`;
 }
+function utf8Length(text){
+  if(typeof TextEncoder === "function") return new TextEncoder().encode(text).length;
+  // TextEncoder отсутствует в старых WebView и в части jsdom; UTF-8
+  // escape-последовательности всё равно позволяют посчитать длину строки.
+  const parts = encodeURIComponent(String(text)).match(/%[0-9A-F]{2}|./gi);
+  return parts ? parts.length : 0;
+}
 function icsFold(line){
-  const bytes = new TextEncoder().encode(line);
-  if(bytes.length <= 73) return line;
+  if(utf8Length(line) <= 73) return line;
   const out = [];
   let cur = "", len = 0;
   for(const ch of line){
-    const n = new TextEncoder().encode(ch).length;
+    const n = utf8Length(ch);
     if(len + n > 72){ out.push(cur); cur = " "; len = 1; }
     cur += ch; len += n;
   }
