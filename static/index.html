@@ -387,6 +387,15 @@ html[data-theme=dark] .blob{opacity:.3}
 .pair-card.now::before{content:"";position:absolute;inset:0;
   background:linear-gradient(120deg,var(--acc-soft),transparent 55%);pointer-events:none}
 .pair-card.changed{border-left:3px solid var(--warn)}
+.pair-card.practice{border-left:3px solid var(--onl);background:var(--onl-soft);box-shadow:inset 0 0 0 1px color-mix(in srgb,var(--onl) 35%,transparent)}
+.pair-card.practice::before{content:"";position:absolute;inset:0;border-radius:inherit;opacity:0;background:radial-gradient(circle at 50% 0%,color-mix(in srgb,var(--onl) 25%,transparent),transparent 60%);animation:practice-glow 2.5s ease-in-out infinite alternate;pointer-events:none;z-index:0}
+.pair-card.practice .pc-chip{background:var(--onl-soft);color:var(--onl)}
+.pair-card.practice .pc-chip svg{stroke:var(--onl)}
+.pair-card.practice .pc-practice{background:color-mix(in srgb,var(--onl) 15%,transparent);color:var(--onl)}
+.pair-card.practice .pc-practice svg{stroke:var(--onl)}
+.pc-practice-badge{display:inline-flex;align-items:center;gap:5px;padding:2px 8px;border-radius:10px;font-size:10px;font-weight:700;letter-spacing:.3px;text-transform:uppercase;background:color-mix(in srgb,var(--onl) 20%,transparent);color:var(--onl);border:1px solid color-mix(in srgb,var(--onl) 45%,transparent);margin-left:auto}
+.pc-practice-badge::before{content:"";width:7px;height:7px;border-radius:50%;background:var(--onl);box-shadow:0 0 6px var(--onl)}
+@keyframes practice-glow{from{opacity:.35}to{opacity:.75}}
 .pc-top{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
 .pc-num{min-width:34px;height:26px;padding:0 8px;border-radius:9px;background:var(--acc-soft);
   color:var(--acc);font-weight:800;font-size:12.5px;display:grid;place-items:center;flex:none}
@@ -1099,6 +1108,7 @@ async function copyText(txt){
 /* ============================================================ состояние */
 const state = {
   groups: [], courses: {}, byId: new Map(),
+  bells: null,                                       // расписание звонков
   course: +(localStorage.getItem(LS.course) || 1),
   groupId: localStorage.getItem(LS.group) || null,
   groupName: localStorage.getItem(LS.gname) || "",
@@ -1114,6 +1124,17 @@ const state = {
   reqId: 0, abort: null,
   offline: !navigator.onLine,
 };
+/* Расписание звонков по умолчанию (используется, если не удалось загрузить с сайта). */
+const DEFAULT_BELLS = [
+  ["I", "08:00", "09:20"],
+  ["II", "09:30", "10:50"],
+  ["III", "11:20", "12:40"],
+  ["IV", "12:50", "14:10"],
+  ["V", "14:20", "15:40"],
+  ["VI", "15:50", "17:10"],
+  ["VII", "17:15", "18:35"],
+  ["VIII", "18:40", "20:00"],
+];
 function readFav(){
   try{ return JSON.parse(localStorage.getItem(LS.fav) || "[]").map(Number).filter(Boolean); }
   catch(e){ return []; }
@@ -1762,22 +1783,21 @@ function sortPairs(pairs){
   });
 }
 function renderDay(){
-  const j = state.data; if(!j) return;
+  let j = state.data; if(!j) return;
   const gname = j.group || state.groupName || "";
   document.title = `${gname} · ${fmtHuman(state.date)} — Расписание АПТ`;
   const view = $("#view");
   view.style.setProperty("--slide", (state.slideDir > 0 ? "" : "-") + "22px");
-  const pairs = dayPairs(j);
   const isToday = state.date === todayISO();
   const practToday = practiceNow(j);
+  let pairs = dayPairs(j);
 
-  /* День практики — нет обычных пар, показываем карточку практики вместо «нет пар» */
+  /* День практики — нет обычных пар, генерируем виртуальные карточки пар для подгрупп:
+     подгруппа 1 — пары I–III, подгруппа 2 — пары IV–VI, время по расписанию звонков. */
   if(practToday && !pairs.length){
-    view.innerHTML = `<div class="view">` +
-      practiceState(j, gname, practToday) +
-      grafCard(j) + `</div>`;
-    applyUpdLine(j);
-    return;
+    const practicePairs = buildPracticePairs(practToday, state.bells);
+    j = Object.assign({}, j, { pairs: practicePairs, _practiceDay: true });
+    pairs = practicePairs;
   }
 
   let html = "";
@@ -2033,7 +2053,10 @@ function pairCard(p, idx){
   const multi = (p.parts || []).length > 1;
   const chips = [];
   if(!multi) chips.push(roomChip(p.room, p.roomTitle));
-  if(!multi && p.subgroup) chips.push(`<span class="pc-chip"><svg><use href="#i-group"/></svg>${esc(p.subgroup)}</span>`);
+  if(!multi && p.subgroup){
+    const isPractice = p._practice;
+    chips.push(`<span class="pc-chip${isPractice ? " pc-practice" : ""}"><svg><use href="${isPractice ? "#i-cal" : "#i-group"}"/></svg>${esc(p.subgroup)}</span>`);
+  }
   if(p.changed && state.chg && state.chg.perPair)
     chips.push(`<span class="pc-chip changed" title="Эта пара отличается от основного расписания"><svg><use href="#i-warn"/></svg>замена</span>`);
 
@@ -2063,12 +2086,13 @@ function pairCard(p, idx){
       <div class="vline"></div>
       <div class="t2">${esc(p.end || "")}</div>
     </div>
-    <article class="pair-card${p.changed && state.chg && state.chg.perPair ? " changed" : ""}" data-i="${idx}"
+    <article class="pair-card${p._practice ? " practice" : ""}${p.changed && state.chg && state.chg.perPair ? " changed" : ""}" data-i="${idx}"
          style="animation:rise .5s ${(.04 + idx*.06).toFixed(2)}s var(--spring) both">
       <div class="pc-top">
         <span class="pc-num">${esc(p.n || "?")}</span>
         <span class="pc-dur">${esc(p.start || "")}${p.end ? "–" + esc(p.end) : ""}${dur > 0 ? " · " + durText(dur) : ""}</span>
         <span class="pc-state" data-state></span>
+        ${p._practice ? `<span class="pc-practice-badge">практика</span>` : ""}
       </div>
       ${multi ? `<div class="pc-subj">Пара по подгруппам</div>` : `
       <div class="pc-subj">${esc(p.subject || "—")}</div>
@@ -2134,6 +2158,58 @@ function practiceStudyDays(start, end){
   while(d <= end){ if(d.getDay() !== 0) out.push(new Date(d)); d.setDate(d.getDate() + 1); }
   return out;
 }
+/* Генерирует виртуальные карточки пар для дня практики.
+   Подгруппа 1 ходит на пары I–III, подгруппа 2 — на пары IV–VI.
+   Время берётся из расписания звонков (bells). */
+function buildPracticePairs(pract, bells){
+  const bellMap = {};
+  (bells || DEFAULT_BELLS).forEach(b => { bellMap[b[0]] = {start: b[1], end: b[2]}; });
+  const heads = (pract.heads || []).map(h => ({short: h, full: h}));
+  const teacherStr = heads.map(h => h.short).join(" / ");
+  const subj = pract.short || "Учебная практика";
+  const subjFull = pract.full || "";
+  const pairs = [];
+  // Подгруппа 1: пары I, II, III
+  ["I","II","III"].forEach((n, i) => {
+    const bell = bellMap[n];
+    pairs.push({
+      n, num: i + 1,
+      start: bell ? bell.start : "",
+      end: bell ? bell.end : "",
+      room: "",
+      roomTitle: "",
+      subject: subj,
+      subjectFull: subjFull,
+      teacher: teacherStr,
+      teachers: heads,
+      subgroup: "1 п/гр.",
+      topics: [], homework: [], notes: [],
+      changed: false, variants: 1, parts: [],
+      _practice: true
+    });
+  });
+  // Подгруппа 2: пары IV, V, VI
+  ["IV","V","VI"].forEach((n, i) => {
+    const bell = bellMap[n];
+    pairs.push({
+      n, num: i + 4,
+      start: bell ? bell.start : "",
+      end: bell ? bell.end : "",
+      room: "",
+      roomTitle: "",
+      subject: subj,
+      subjectFull: subjFull,
+      teacher: teacherStr,
+      teachers: heads,
+      subgroup: "2 п/гр.",
+      topics: [], homework: [], notes: [],
+      changed: false, variants: 1, parts: [],
+      _practice: true
+    });
+  });
+  return pairs;
+}
+
 /* Карточка практики под графиком: список периодов и пометка «сейчас на практике». */
 function practiceCard(j){
   const ps = practicePeriods(j);
@@ -2245,11 +2321,11 @@ function renderWeek(){
     let badge, cls = "";
     if(!d){ badge = "нет данных"; cls = "zero"; }
     else if(!d.published && !pairs.length){
-      badge = pract ? "практика" : "не опубликовано";
+      badge = pract ? "практика · 6 пар" : "не опубликовано";
       cls = pract ? "pract" : "warn";
     }
     else if(!pairs.length){
-      badge = pract ? "практика" : "нет пар";
+      badge = pract ? "практика · 6 пар" : "нет пар";
       cls = pract ? "pract" : "zero";
     }
     else badge = `${pairs.length} ${plural(pairs.length,"пара","пары","пар")}`;
@@ -2664,6 +2740,11 @@ async function boot(){
     state.teachers = t && t.teachers;
     if(state.teachers && state.data && state.mode === "day") renderDay();
   }).catch(()=>{});
+
+  // загружаем расписание звонков — нужно для карточек практики, до первого рендеринга дня
+  const bj = await getJSON(apiUrl("bells")).catch(() => ({bells: []}));
+  state.bells = (bj.bells || []).map(b => [String(b[0] || ""), String(b[1] || ""), String(b[2] || "")]);
+  if(!state.bells.length) state.bells = DEFAULT_BELLS;
 
   // запомненную группу показываем немедленно, не дожидаясь списка групп:
   // расписание и список едут параллельно, и сайт открывается «на своей» группе

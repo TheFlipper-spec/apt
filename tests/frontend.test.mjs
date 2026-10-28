@@ -688,20 +688,32 @@ test("учебная практика из графика показывает �
   dom.window.close();
 });
 
-test("день без пар в период практики объясняет, когда приходить", async () => {
+test("день практики показывает карточки пар для каждой подгруппы", async () => {
   const day = JSON.parse(
     fs.readFileSync(path.join(WEB, "data/d/9001/2026-10-05.json"), "utf8"));
   day.pairs = []; day.published = false;
-  day.graf = [{heads: [], hours: "", label: "",
+  day.graf = [{heads: ["Зинкина А.Ф.", "Юрасов Д.Д."], hours: "72", label: "",
     practice: {full: "Учебная практика ПМ 01", short: "УП 01"},
     range: "01/10-10/10/2026", span: "2 недели"}];
   const dom = await boot({hash: "#/9001/2026-10-05",
     fetchOpts: {override: {"data/d/9001/2026-10-05.json": day}}});
-  const box = dom.window.document.querySelector(".state");
-  assert.ok(box, "отрисовано состояние вместо пустого экрана");
-  assert.match(box.textContent, /практик/i);
-  assert.match(box.textContent, /приходите по графику/, "есть призыв приходить по графику");
-  assert.match(box.textContent, /Период:/, "есть период практики");
+  const d = dom.window.document;
+  // 6 карточек пар: подгруппа 1 — пары I–III, подгруппа 2 — пары IV–VI
+  const cards = all(dom, ".pair-card");
+  assert.equal(cards.length, 6, "шесть карточек пар практики");
+  // подгруппа 1 — первые три пары
+  const g1 = cards.filter(c => c.textContent.includes("1 п/гр."));
+  assert.equal(g1.length, 3, "три пары для первой подгруппы");
+  assert.ok(g1.every(c => /^[IVX]+$/.test(c.querySelector(".pc-num").textContent.trim())));
+  // подгруппа 2 — следующие три пары
+  const g2 = cards.filter(c => c.textContent.includes("2 п/гр."));
+  assert.equal(g2.length, 3, "три пары для второй подгруппы");
+  // предмет и преподаватели
+  assert.ok(cards.some(c => c.textContent.includes("Учебная практика")), "предмет практика");
+  assert.ok(cards.some(c => c.textContent.includes("Зинкина")), "руководитель практики");
+  assert.ok(cards.some(c => c.textContent.includes("Юрасов")), "руководитель практики");
+  // стиль практики
+  assert.ok(cards.every(c => c.classList.contains("practice")), "карточки помечены как практика");
   dom.window.close();
 });
 
