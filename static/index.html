@@ -509,6 +509,7 @@ button.tc-row:focus-visible{outline-offset:3px}
   background:var(--acc-soft);color:var(--acc);white-space:nowrap}
 .wk-cnt.zero{background:var(--bg-soft);color:var(--ink-3)}
 .wk-cnt.warn{background:var(--warn-soft);color:var(--warn)}
+.wk-cnt.pract{background:var(--acc-soft);color:var(--acc)}
 .wk-pract{font-size:10.5px;font-weight:800;border-radius:999px;padding:3px 8px;margin-left:8px;background:var(--warn-soft);color:var(--warn);white-space:nowrap}
 .pc-state.now{animation:pulseNow 2s infinite}
 @keyframes pulseNow{0%,100%{box-shadow:0 0 0 0 rgba(79,99,240,.35)}50%{box-shadow:0 0 0 7px rgba(79,99,240,.3)}}
@@ -1770,21 +1771,19 @@ function renderDay(){
   const isToday = state.date === todayISO();
   const practToday = practiceNow(j);
 
+  /* День практики — нет обычных пар, показываем карточку практики вместо «нет пар» */
+  if(practToday && !pairs.length){
+    view.innerHTML = `<div class="view">` +
+      practiceState(j, gname, practToday) +
+      grafCard(j) + `</div>`;
+    applyUpdLine(j);
+    return;
+  }
+
   let html = "";
   if(j.notices && j.notices.length){
     html += `<div class="strip">` + j.notices.map(n =>
       `<div class="chip warn"><svg><use href="#i-warn"/></svg>${esc(n)}</div>`).join("") + `</div>`;
-  }
-
-  function practNote(){
-    if(!practToday) return "";
-    const days = practiceStudyDays(practToday.start, practToday.end);
-    const soon = days.slice(0, 10).map(d => fmtShort(toISO(d))).join(", ");
-    const more = days.length > 10 ? ` … (+${days.length - 10})` : "";
-    return `<br><br>Вы сейчас на учебной практике <b>${esc(practToday.short)}</b>` +
-      (practToday.full ? ` · ${esc(practToday.full)}` : "") +
-      ` (${esc(practToday.range)}) — пар по основному расписанию нет, приходите по графику.` +
-      `<br>Ближайшие дни: ${esc(soon)}${esc(more)}.`;
   }
 
   if(!j.published && !pairs.length){
@@ -1792,7 +1791,7 @@ function renderDay(){
     view.innerHTML = `<div class="view">` + html +
       stateView("i-cal", "Расписание ещё не опубликовано",
         `Для группы <b>${esc(gname)}</b> на ${fmtHuman(state.date)} расписание пока не выложили.` +
-        (future ? "<br>Обычно оно появляется за день-два до занятий." : "") + practNote(),
+        (future ? "<br>Обычно оно появляется за день-два до занятий." : ""),
         [{act:"retry", label:"Проверить ещё раз"}]) +
       grafCard(j) + `</div>`;
     applyUpdLine(j);
@@ -1803,7 +1802,7 @@ function renderDay(){
     view.innerHTML = `<div class="view">` + html +
       stateView("i-coffee", sunday ? "Воскресенье" : "Занятий нет",
         sunday ? "Отдыхайте — в воскресенье пар не бывает."
-               : "В этот день пар не запланировано." + practNote(), []) +
+               : "В этот день пар не запланировано.", []) +
       grafCard(j) + `</div>`;
     applyUpdLine(j);
     return;
@@ -2159,6 +2158,27 @@ function practiceCard(j){
     `</button><div class="info-body"><div class="info-body-in">${rows}</div></div></section>`;
 }
 
+/* Карточка состояния «день практики» — показывается вместо «нет пар»,
+   когда в этот день по графику идет учебная/производственная практика.
+   Формат как на официальном сайте technicalкума:
+   «Практика группы СА-231б на вторник, 27 октября 2026 года, УП 03 …» */
+function practiceState(j, gname, pr){
+  const dow = WD_FULL[fromISO(state.date).getDay()];
+  const heads = pr.heads && pr.heads.length ? `руководители: ${esc(pr.heads.join(" / "))}` : "";
+  const period = pr.range ? `<br>Период: ${esc(pr.range)} · ${esc(pr.span)}` : "";
+  const hours = pr.hours ? `<br>${esc(pr.hours)} часов` : "";
+  return `<div class="state">` +
+    `<div class="emo"><svg><use href="#i-cal"/></svg></div>` +
+    `<h3>Практика группы <b>${esc(gname)}</b></h3>` +
+    `<p>на ${dow}, ${fmtHuman(state.date)}<br>` +
+    `<b>${esc(pr.short || "Практика")}</b>${pr.full ? ` · ${esc(pr.full)}` : ""}` +
+    (heads ? `<br>${esc(heads)}` : "") +
+    (hours ? `<br>${esc(hours)}` : "") +
+    period +
+    `<br>В этот день пар по основному расписанию нет — приходите по графику практики.</p>` +
+    `</div>`;
+}
+
 function parseGrafRange(s){
   const part = String(s || "").split(",")[0].trim();
   const i = part.lastIndexOf("-");
@@ -2221,12 +2241,18 @@ function renderWeek(){
     changed += allChanged ? 0 : nCh;
     pairs.forEach(p => hwRows(p).forEach(r => hw.push({iso, subj: hwLabel(r), text: r.text})));
     const dd = fromISO(iso);
+    const pract = d ? practiceOn(iso) : null;
     let badge, cls = "";
     if(!d){ badge = "нет данных"; cls = "zero"; }
-    else if(!d.published && !pairs.length){ badge = "не опубликовано"; cls = "warn"; }
-    else if(!pairs.length){ badge = "нет пар"; cls = "zero"; }
+    else if(!d.published && !pairs.length){
+      badge = pract ? "практика" : "не опубликовано";
+      cls = pract ? "pract" : "warn";
+    }
+    else if(!pairs.length){
+      badge = pract ? "практика" : "нет пар";
+      cls = pract ? "pract" : "zero";
+    }
     else badge = `${pairs.length} ${plural(pairs.length,"пара","пары","пар")}`;
-    const pract = d ? practiceOn(iso) : null;
 
     const range = pairs.length && pairs[0].start && pairs[pairs.length-1].end
       ? `${pairs[0].start} — ${pairs[pairs.length-1].end}` : "";

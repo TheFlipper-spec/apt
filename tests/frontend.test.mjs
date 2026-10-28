@@ -700,7 +700,8 @@ test("день без пар в период практики объясняет
   const box = dom.window.document.querySelector(".state");
   assert.ok(box, "отрисовано состояние вместо пустого экрана");
   assert.match(box.textContent, /практик/i);
-  assert.match(box.textContent, /Ближайшие дни/, "есть дни, когда приходить");
+  assert.match(box.textContent, /приходите по графику/, "есть призыв приходить по графику");
+  assert.match(box.textContent, /Период:/, "есть период практики");
   dom.window.close();
 });
 
