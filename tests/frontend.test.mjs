@@ -668,3 +668,80 @@ test("в разметке нет жёстких ширин в пикселях �
   assert.deepEqual(bad, []);
   dom.window.close();
 });
+
+/* ------------------------------------------------------ учебная практика */
+test("учебная практика из графика показывает карточку «когда приходить»", async () => {
+  const day = JSON.parse(
+    fs.readFileSync(path.join(WEB, "data/d/9001/2026-10-05.json"), "utf8"));
+  day.graf = [{heads: ["Зинкина А.Ф."], hours: "72", label: "",
+    practice: {full: "Учебная практика ПМ 01", short: "УП 01"},
+    range: "01/10-10/10/2026", span: "2 недели"}];
+  const dom = await boot({hash: "#/9001/2026-10-05",
+    fetchOpts: {override: {"data/d/9001/2026-10-05.json": day}}});
+  const d = dom.window.document;
+  const head = all(dom, ".info-head").find((h) => /практик/i.test(h.textContent));
+  assert.ok(head, "карточка учебной практики есть");
+  assert.match(head.textContent, /УП 01/, "короткое название периода");
+  const card = head.closest(".info-card");
+  assert.ok(card.querySelector(".graf-row.now"), "текущий период подсвечен");
+  assert.match(card.textContent, /Сейчас на практике — приходите/, "прямой призыв приходить");
+  dom.window.close();
+});
+
+test("день без пар в период практики объясняет, когда приходить", async () => {
+  const day = JSON.parse(
+    fs.readFileSync(path.join(WEB, "data/d/9001/2026-10-05.json"), "utf8"));
+  day.pairs = []; day.published = false;
+  day.graf = [{heads: [], hours: "", label: "",
+    practice: {full: "Учебная практика ПМ 01", short: "УП 01"},
+    range: "01/10-10/10/2026", span: "2 недели"}];
+  const dom = await boot({hash: "#/9001/2026-10-05",
+    fetchOpts: {override: {"data/d/9001/2026-10-05.json": day}}});
+  const box = dom.window.document.querySelector(".state");
+  assert.ok(box, "отрисовано состояние вместо пустого экрана");
+  assert.match(box.textContent, /практик/i);
+  assert.match(box.textContent, /Ближайшие дни/, "есть дни, когда приходить");
+  dom.window.close();
+});
+
+test("в обзоре недели день практики помечается", async () => {
+  const day = JSON.parse(
+    fs.readFileSync(path.join(WEB, "data/d/9001/2026-10-05.json"), "utf8"));
+  day.graf = [{heads: [], hours: "", label: "",
+    practice: {full: "Учебная практика ПМ 01", short: "УП 01"},
+    range: "01/10-10/10/2026", span: "2 недели"}];
+  const dom = await boot({hash: "#/9001/2026-10-05", storage: {"apt.mode": "week"},
+    fetchOpts: {override: {"data/d/9001/2026-10-05.json": day}}});
+  const w = dom.window;
+  for (let i = 0; i < 200; i++) {
+    await new Promise((r) => setTimeout(r, 10));
+    if (w.document.querySelector(".wk-day")) break;
+  }
+  assert.ok(all(dom, ".wk-pract").length > 0, "день практики в обзоре недели помечен");
+  dom.window.close();
+});
+
+test("экспорт недели включает дни практики целодневными событиями", async () => {
+  const day = JSON.parse(
+    fs.readFileSync(path.join(WEB, "data/d/9001/2026-10-05.json"), "utf8"));
+  day.graf = [{heads: [], hours: "", label: "",
+    practice: {full: "Учебная практика ПМ 01", short: "УП 01"},
+    range: "01/10-10/10/2026", span: "2 недели"}];
+  const dom = await boot({hash: "#/9001/2026-10-05", storage: {"apt.mode": "week"},
+    fetchOpts: {override: {"data/d/9001/2026-10-05.json": day}}});
+  const w = dom.window;
+  for (let i = 0; i < 200; i++) {
+    await new Promise((r) => setTimeout(r, 10));
+    if (w.document.querySelector(".wk-day")) break;
+  }
+  let captured = null;
+  w.URL.createObjectURL = (blob) => { captured = blob; return "blob:x"; };
+  w.URL.revokeObjectURL = () => {};
+  w.HTMLAnchorElement.prototype.click = function () {};
+  w.document.querySelector("[data-act=ics]").click();
+  await new Promise((r) => setTimeout(r, 50));
+  const text = await captured.text();
+  assert.match(text, /VALUE=DATE:20261005/, "понедельник практики — целодневное событие");
+  assert.match(text, /Учебная практика · УП 01/);
+  dom.window.close();
+});

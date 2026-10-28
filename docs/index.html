@@ -509,6 +509,9 @@ button.tc-row:focus-visible{outline-offset:3px}
   background:var(--acc-soft);color:var(--acc);white-space:nowrap}
 .wk-cnt.zero{background:var(--bg-soft);color:var(--ink-3)}
 .wk-cnt.warn{background:var(--warn-soft);color:var(--warn)}
+.wk-pract{font-size:10.5px;font-weight:800;border-radius:999px;padding:3px 8px;margin-left:8px;background:var(--warn-soft);color:var(--warn);white-space:nowrap}
+.pc-state.now{animation:pulseNow 2s infinite}
+@keyframes pulseNow{0%,100%{box-shadow:0 0 0 0 rgba(79,99,240,.35)}50%{box-shadow:0 0 0 7px rgba(79,99,240,.3)}}
 .wk-items{border-top:1px solid var(--line);padding:4px 0}
 .wk-item{display:flex;align-items:center;gap:10px;padding:8px 15px;font-size:13px}
 .wk-item .wt{font-size:11.5px;font-weight:700;color:var(--ink-3);width:42px;flex:none;
@@ -958,6 +961,20 @@ kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:11.5px;fon
       <button class="icon-btn" data-close aria-label="Закрыть"><svg><use href="#i-x"/></svg></button>
     </div>
     <div class="modal-body" id="teacherBody"></div>
+  </div>
+</div>
+
+<div class="modal" id="mdChg" role="dialog" aria-modal="true" aria-labelledby="mdChgT">
+  <div class="modal-bd" data-close></div>
+  <div class="modal-win">
+    <div class="modal-head">
+      <b id="mdChgT">Почему весь день отмечен заменой</b>
+      <button class="icon-btn" data-close aria-label="Закрыть"><svg><use href="#i-x"/></svg></button>
+    </div>
+    <div class="modal-body">
+      <p class="prose">На сайте техникума почти никогда не выкладывается отдельное «основное» расписание — весь день публикуется через таблицу замен. Поэтому каждая пара дня приходит с пометкой «замена», но по сути это обычное расписание на день, а не изменения к чему-то.</p>
+      <p class="prose">Значок «замена» рядом с парой показывается только тогда, когда заменена часть пар дня — тогда это действительно изменение.</p>
+    </div>
   </div>
 </div>
 
@@ -1694,6 +1711,7 @@ $("#view").addEventListener("click", e => {
     if(a.dataset.act === "today") gotoDate(todayISO());
     if(a.dataset.act === "ics") exportIcs();
     if(a.dataset.act === "copyhw") copyHomework();
+    if(a.dataset.act === "whychg"){ openModal("#mdChg"); return; }
     return;
   }
   const d = e.target.closest("[data-dets]");
@@ -1750,6 +1768,7 @@ function renderDay(){
   view.style.setProperty("--slide", (state.slideDir > 0 ? "" : "-") + "22px");
   const pairs = dayPairs(j);
   const isToday = state.date === todayISO();
+  const practToday = practiceNow(j);
 
   let html = "";
   if(j.notices && j.notices.length){
@@ -1757,12 +1776,23 @@ function renderDay(){
       `<div class="chip warn"><svg><use href="#i-warn"/></svg>${esc(n)}</div>`).join("") + `</div>`;
   }
 
+  function practNote(){
+    if(!practToday) return "";
+    const days = practiceStudyDays(practToday.start, practToday.end);
+    const soon = days.slice(0, 10).map(d => fmtShort(toISO(d))).join(", ");
+    const more = days.length > 10 ? ` … (+${days.length - 10})` : "";
+    return `<br><br>Вы сейчас на учебной практике <b>${esc(practToday.short)}</b>` +
+      (practToday.full ? ` · ${esc(practToday.full)}` : "") +
+      ` (${esc(practToday.range)}) — пар по основному расписанию нет, приходите по графику.` +
+      `<br>Ближайшие дни: ${esc(soon)}${esc(more)}.`;
+  }
+
   if(!j.published && !pairs.length){
     const future = state.date > todayISO();
     view.innerHTML = `<div class="view">` + html +
       stateView("i-cal", "Расписание ещё не опубликовано",
         `Для группы <b>${esc(gname)}</b> на ${fmtHuman(state.date)} расписание пока не выложили.` +
-        (future ? "<br>Обычно оно появляется за день-два до занятий." : ""),
+        (future ? "<br>Обычно оно появляется за день-два до занятий." : "") + practNote(),
         [{act:"retry", label:"Проверить ещё раз"}]) +
       grafCard(j) + `</div>`;
     applyUpdLine(j);
@@ -1773,7 +1803,7 @@ function renderDay(){
     view.innerHTML = `<div class="view">` + html +
       stateView("i-coffee", sunday ? "Воскресенье" : "Занятий нет",
         sunday ? "Отдыхайте — в воскресенье пар не бывает."
-               : "В этот день пар не запланировано.", []) +
+               : "В этот день пар не запланировано." + practNote(), []) +
       grafCard(j) + `</div>`;
     applyUpdLine(j);
     return;
@@ -1791,7 +1821,9 @@ function renderDay(){
   if(totalMin) chips.push(`<div class="chip"><svg><use href="#i-book"/></svg>${durText(totalMin)} занятий</div>`);
   const chg = changeInfo(pairs);
   state.chg = chg;
-  if(chg.perPair)
+  if(chg.all)
+    chips.push(`<button class="chip warn" data-act="whychg"><svg><use href="#i-info"/></svg>Весь день из таблицы замен</button>`);
+  else if(chg.perPair)
     chips.push(`<div class="chip warn"><svg><use href="#i-warn"/></svg>${chg.n} ${plural(chg.n,"замена","замены","замен")}</div>`);
   if(j.stale || j.fromCache) chips.push(`<div class="chip warn"><svg><use href="#i-off"/></svg>офлайн-копия</div>`);
   const nHw = pairs.reduce((s,p) => s + hwOf(p).length, 0);
@@ -1831,6 +1863,7 @@ function renderDay(){
       </div></div></section>`;
   }
   aside += grafCard(j);
+  aside += practiceCard(j);
   if(aside) html += `<div class="day-aside">${aside}</div>`;
   view.innerHTML = `<div class="view">${html}</div>`;
 
@@ -1917,6 +1950,7 @@ function changeInfo(pairs){
   return {
     n,
     perPair: n > 0 && !all,          // показывать значок только при частичной замене
+    all,                             // весь день пришёл из таблицы замен — не замена, способ публикации
   };
 }
 function hwOf(p){
@@ -2068,6 +2102,63 @@ function detBlocks(topics, hw, notes){
   return t + h + n;
 }
 
+/* ------------------------------------------------------ учебная практика */
+/* В графике учебного процесса практика помечена собственным полем
+   practice («УП 01», «ПП 03» и т. п.). По таким дням пар нет — вместо
+   них показываем период и дни, когда нужно приходить. iso — дата, которую
+   проверяем (по умолчанию выбранная). */
+function practicePeriods(j){
+  return (j.graf || []).filter(g => g && g.practice).map(g => {
+    const r = parseGrafRange(g.range);
+    return {
+      range: g.range,
+      short: g.practice.short || "",
+      full: g.practice.full || "",
+      heads: Array.isArray(g.heads) ? g.heads : [],
+      hours: g.hours || "",
+      span: g.span || "",
+      start: r ? r.start : null,
+      end: r ? r.end : null,
+    };
+  });
+}
+function practiceNow(j, iso){
+  const cur = fromISO(iso || state.date);
+  return (practicePeriods(j).filter(p => p.start && p.end && cur >= p.start && cur <= p.end))[0] || null;
+}
+function practiceOn(iso){
+  const d = state.week && state.week.get(iso);
+  return d ? practiceNow(d, iso) : null;
+}
+function practiceStudyDays(start, end){
+  const out = [], d = new Date(start.getFullYear(), start.getMonth(), start.getDate());
+  while(d <= end){ if(d.getDay() !== 0) out.push(new Date(d)); d.setDate(d.getDate() + 1); }
+  return out;
+}
+/* Карточка практики под графиком: список периодов и пометка «сейчас на практике». */
+function practiceCard(j){
+  const ps = practicePeriods(j);
+  if(!ps.length) return "";
+  const cur = practiceNow(j);
+  const rows = ps.map(p => {
+    const active = cur && p.range === cur.range;
+    return `<div class="graf-row${active ? " now" : ""}">` +
+      `<div class="graf-rng">${esc(p.range)}</div>` +
+      `<div class="graf-mid"><b>${esc(p.short || "Практика")}</b>${p.full ? `<span>${esc(p.full)}</span>` : ""}` +
+      (p.heads.length ? `<span>рук. ${esc(p.heads.join(" / "))}</span>` : "") +
+      (p.hours ? `<span>${esc(p.hours)} часов</span>` : "") + `</div>` +
+      `<div class="graf-span">${active ? "Сейчас на практике — приходите" : esc(p.span)}</div>` +
+      `</div>`;
+  }).join("");
+  const nowTxt = cur ? `сейчас: ${esc(cur.short)} · ${esc(cur.range)}` : "в графике ещё не наступила";
+  return `<section class="info-card">` +
+    `<button class="info-head" data-acc aria-expanded="false">` +
+    `<span class="info-ic"><svg><use href="#i-cal"/></svg></span>` +
+    `<b>Учебная практика</b><span class="cnt">${nowTxt}</span>` +
+    `<span class="info-chev"><svg><use href="#i-down"/></svg></span>` +
+    `</button><div class="info-body"><div class="info-body-in">${rows}</div></div></section>`;
+}
+
 function parseGrafRange(s){
   const part = String(s || "").split(",")[0].trim();
   const i = part.lastIndexOf("-");
@@ -2135,6 +2226,7 @@ function renderWeek(){
     else if(!d.published && !pairs.length){ badge = "не опубликовано"; cls = "warn"; }
     else if(!pairs.length){ badge = "нет пар"; cls = "zero"; }
     else badge = `${pairs.length} ${plural(pairs.length,"пара","пары","пар")}`;
+    const pract = d ? practiceOn(iso) : null;
 
     const range = pairs.length && pairs[0].start && pairs[pairs.length-1].end
       ? `${pairs[0].start} — ${pairs[pairs.length-1].end}` : "";
@@ -2150,7 +2242,7 @@ function renderWeek(){
         <span class="wk-dn"><b>${dd.getDate()}</b><span>${WD_SHORT[dd.getDay()]}</span></span>
         <span class="wk-main"><b>${WD_FULL[dd.getDay()]}</b>
           <span>${range || (d && d.dateText ? esc(d.dateText) : fmtHuman(iso))}</span></span>
-        <span class="wk-cnt ${cls}">${badge}</span>
+        <span class="wk-cnt ${cls}">${badge}</span>${pract ? `<span class="wk-pract" title="Учебная практика · ${esc(pract.range)}">${esc(pract.short)}</span>` : ""}
       </button>
       ${items ? `<div class="wk-items">${items}</div>` : ""}
     </section>`;
@@ -2356,10 +2448,33 @@ function dayEvents(iso, day){
   });
   return out;
 }
+/* Дни учебной практики в календарь — целодневными событиями по учебным дням периода. */
+/* VALUE=DATE — без дефисов: 20261005, а не 2026-10-05. */
+function icsDate(iso){ return iso.replace(/-/g, ""); }
+function practiceIcs(iso, pr){
+  const next = addDays(iso, 1);
+  const desc = [pr.short, pr.full, pr.range,
+                pr.heads.length ? "рук. " + pr.heads.join(" / ") : ""].filter(Boolean).join(" · ");
+  return [
+    "BEGIN:VEVENT",
+    `UID:apt-practice-${state.groupId}-${iso}@almetpt.ru`,
+    `DTSTAMP:${icsStamp(todayISO(), "00:00")}`,
+    `DTSTART;VALUE=DATE:${icsDate(iso)}`,
+    `DTEND;VALUE=DATE:${icsDate(next)}`,
+    icsFold(`SUMMARY:${icsEsc("Учебная практика · " + pr.short)}`),
+    desc ? icsFold(`DESCRIPTION:${icsEsc(desc)}`) : "",
+    "END:VEVENT",
+  ].filter(Boolean).join("\r\n");
+}
 function exportIcs(){
   let events = [], name;
   if(state.mode === "week" && state.week){
+    const dates = weekDates(state.date);
     for(const [iso,d] of state.week) events = events.concat(dayEvents(iso, d));
+    for(const iso of dates){
+      const pr = practiceOn(iso);
+      if(pr && fromISO(iso).getDay() !== 0) events.push(practiceIcs(iso, pr));
+    }
     name = `apt-${state.groupName || state.groupId}-${mondayOf(state.date)}-неделя.ics`;
   }else if(state.data){
     events = dayEvents(state.date, state.data);
