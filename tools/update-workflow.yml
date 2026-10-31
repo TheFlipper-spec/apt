@@ -56,6 +56,19 @@ jobs:
           python3 --version
           python3 fetch_all.py --weeks 2 --workers 6
 
+      # Если в триггер-коммите менялась оболочка (static/**) или код бота,
+      # прошиваем в sw.js свежую метку версии: сервис-воркер у пользователей
+      # подхватит новую оболочку сам, без Ctrl+Shift+R. Прогоны по cron
+      # (данные) версию не трогают — офлайн-копии живут.
+      - name: Отметить версию оболочки
+        run: |
+          if git diff --name-only HEAD~1 HEAD | grep -q -e '^static/' -e '^parser\.py$' -e '^fetch_all\.py$' -e '^server\.py$'; then
+            sed -i "s|^const SHELL_VERSION = \".*\";|const SHELL_VERSION = \"apt-shell-$(date -u +%Y%m%d-%H%M)\";|" docs/sw.js
+            grep -m1 "SHELL_VERSION" docs/sw.js
+          else
+            echo "Оболочка не менялась — метку версии не трогаем"
+          fi
+
       - name: Закоммитить изменения
         run: |
           git config user.name  "apt-schedule-bot"
