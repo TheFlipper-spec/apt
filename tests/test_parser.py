@@ -152,6 +152,26 @@ class TestDayVariants(unittest.TestCase):
         self.assertIn(("Мингазова А.А.", 108), heads)
         self.assertTrue(d["published"],
                         "«Нет учебных занятий» ≠ «не опубликовано»")
+        # интервал 08:00–16:00 разложен на пары по звонкам с началом
+        # и концом каждой пары практики (fallback-звонки: V кончается
+        # в 15:40, VI начинается 15:50 и в 16:00 почти не попадает)
+        self.assertEqual([s["n"] for s in pr["slots"]],
+                         ["I", "II", "III", "IV", "V"])
+        self.assertEqual((pr["slots"][0]["start"], pr["slots"][0]["end"]),
+                         ("08:00", "09:20"))
+        self.assertEqual((pr["slots"][-1]["start"], pr["slots"][-1]["end"]),
+                         ("14:20", "15:40"))
+        # на настоящих звонках сайта (VI = 14:40–15:50) интервал
+        # 08:00–16:00 покрывает шесть пар
+        site_bells = {r: (s, e) for r, s, e in [
+            ("I", "08:00", "09:10"), ("II", "09:20", "10:30"),
+            ("III", "10:40", "11:50"), ("IV", "12:00", "13:10"),
+            ("V", "13:20", "14:30"), ("VI", "14:40", "15:50"),
+            ("VII", "16:00", "17:10")]}
+        d_site = P.build_day(9002, "2026-10-11", F.day_practice(), site_bells)
+        self.assertEqual([s["n"] for s in d_site["practice"][0]["slots"]],
+                         ["I", "II", "III", "IV", "V", "VI"])
+        self.assertEqual(d_site["practice"][0]["slots"][-1]["end"], "15:50")
         # карточка реального вида: название только в заголовке вместе
         # с группой и датой — лишнее отрезаем
         pr2 = d["practice"][1]
@@ -159,6 +179,8 @@ class TestDayVariants(unittest.TestCase):
         self.assertEqual(pr2["room"], "203м")
         self.assertIn(("Хазипова Л.Н.", 77),
                       [(h["short"], h.get("id")) for h in pr2["heads"]])
+        self.assertEqual(pr2["slots"], [],
+                         "без интервала в карточке пары не выдумываем")
 
     def test_empty_subgroup_kept(self):
         """У пустой половины подгруппы блок сохраняется: иначе предмет

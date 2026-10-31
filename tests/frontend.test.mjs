@@ -284,6 +284,13 @@ test("день практики: карточка практики вместо 
   assert.match(prac.textContent, /36\s*ч/);
   assert.match(prac.textContent, /Сарайло Лариса Владимировна/, "руководитель практики виден");
   assert.match(prac.textContent, /02\/11-08\/11\/2026/, "период практики виден");
+  // интервал практики разложен по парам: начало и конец каждой видны
+  const slots = prac.querySelectorAll(".prac-slot");
+  assert.equal(slots.length, 5, "08:00–16:00 — это пары I–V по звонкам");
+  assert.match(slots[0].textContent, /I/);
+  assert.match(slots[0].textContent, /08:00–09:20/);
+  assert.match(slots[4].textContent, /V/);
+  assert.match(slots[4].textContent, /14:20–15:40/);
   assert.ok(!view.querySelector(".state"), "экрана «Занятий нет» нет");
   assert.ok(!/Нет учебных занятий/i.test(view.textContent),
     "служебный alert «Нет учебных занятий» не дублируется предупреждением");

@@ -467,6 +467,8 @@ button.tc-row:focus-visible{outline-offset:3px}
 .prac .pc-meta{margin-top:8px}
 .prac .tc-list{margin-top:9px}
 .prac-txt{margin:7px 0 0;font-size:13px;line-height:1.55;color:var(--ink-2);font-weight:500}
+.prac-slots{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+.prac-slot b{font-weight:800;color:var(--ink)}
 /* details */
 .dets{margin-top:11px;border-top:1px dashed var(--line-2)}
 .dets-btn{display:flex;align-items:center;gap:8px;width:100%;padding:10px 2px 0;
@@ -2177,6 +2179,12 @@ function practiceSec(list, compact){
         <b class="ttl">${esc(pr.short || pr.full || "Практика")}</b>
         ${pr.full && pr.full !== pr.short ? `<div class="pc-subjfull">${esc(pr.full)}</div>` : ""}
         ${chips.length ? `<div class="pc-meta">${chips.join("")}</div>` : ""}
+        ${pr.slots && pr.slots.length
+          ? `<div class="prac-slots">${pr.slots.map(s =>
+              `<span class="pc-chip prac-slot"><b>${esc(s.n)}</b>&nbsp;${esc(s.start)}–${esc(s.end)}</span>`).join("")}</div>`
+          : (!compact && !(pr.start || pr.end)
+              ? `<div class="prac-txt">Время занятий на сайте не указано — его сообщает руководитель практики.</div>`
+              : "")}
         ${(pr.heads && pr.heads.length)
           ? `<div class="prac-txt">Руководит${pr.heads.length > 1 ? "ели" : "ель"}:</div>` + teacherList(pr.heads) : ""}
       </div>
