@@ -469,6 +469,9 @@ button.tc-row:focus-visible{outline-offset:3px}
 .prac-txt{margin:7px 0 0;font-size:13px;line-height:1.55;color:var(--ink-2);font-weight:500}
 .prac-slots{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
 .prac-slot b{font-weight:800;color:var(--ink)}
+.prac-subs{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
+.prac-sub{font-weight:600}
+.prac-sub b{font-weight:800;color:var(--ink)}
 /* details */
 .dets{margin-top:11px;border-top:1px dashed var(--line-2)}
 .dets-btn{display:flex;align-items:center;gap:8px;width:100%;padding:10px 2px 0;
@@ -2166,8 +2169,18 @@ function detBlocks(topics, hw, notes){
 function practiceSec(list, compact){
   if(!list || !list.length) return "";
   return list.map(pr => {
+    const slots = pr.slots || [];
+    // Практика идёт с 1 по 6 пару; подгруппы занимаются по 3 пары
+    // подряд (стандартно: 1 п/гр — пары I–III, 2 п/гр — пары IV–VI).
+    const half = Math.ceil(slots.length / 2);
+    const subs = slots.length >= 2
+      ? [["1 п/гр", slots.slice(0, half)], ["2 п/гр", slots.slice(half)]]
+      : [];
+    const spanOf = ss => `${ss[0].start}–${ss[ss.length-1].end}`;
     const chips = [];
-    if(pr.start || pr.end)
+    if(slots.length)
+      chips.push(`<span class="pc-chip"><svg><use href="#i-time"/></svg>пары ${esc(slots[0].n)}–${esc(slots[slots.length-1].n)} · ${esc(spanOf(slots))}</span>`);
+    else if(pr.start || pr.end)
       chips.push(`<span class="pc-chip"><svg><use href="#i-time"/></svg>${esc(pr.start || "")}${pr.end ? "–" + esc(pr.end) : ""}</span>`);
     if(pr.room) chips.push(roomChip(pr.room, pr.roomTitle));
     if(pr.hours) chips.push(`<span class="pc-chip"><svg><use href="#i-list"/></svg>${esc(pr.hours)} ч</span>`);
@@ -2179,12 +2192,17 @@ function practiceSec(list, compact){
         <b class="ttl">${esc(pr.short || pr.full || "Практика")}</b>
         ${pr.full && pr.full !== pr.short ? `<div class="pc-subjfull">${esc(pr.full)}</div>` : ""}
         ${chips.length ? `<div class="pc-meta">${chips.join("")}</div>` : ""}
-        ${pr.slots && pr.slots.length
-          ? `<div class="prac-slots">${pr.slots.map(s =>
+        ${subs.length
+          ? `<div class="prac-subs" title="Каждая подгруппа занимается 3 пары подряд">${subs.map(([sg, ss]) =>
+              `<span class="pc-chip prac-sub"><b>${sg}</b>&nbsp;пары ${esc(ss[0].n)}–${esc(ss[ss.length-1].n)}&nbsp;· ${esc(spanOf(ss))}</span>`).join("")}</div>`
+          : ""}
+        ${!compact && slots.length
+          ? `<div class="prac-slots">${slots.map(s =>
               `<span class="pc-chip prac-slot"><b>${esc(s.n)}</b>&nbsp;${esc(s.start)}–${esc(s.end)}</span>`).join("")}</div>`
-          : (!compact && !(pr.start || pr.end)
-              ? `<div class="prac-txt">Время занятий на сайте не указано — его сообщает руководитель практики.</div>`
-              : "")}
+          : ""}
+        ${!compact && !slots.length && !(pr.start || pr.end)
+          ? `<div class="prac-txt">Время занятий на сайте не указано — его сообщает руководитель практики.</div>`
+          : ""}
         ${(pr.heads && pr.heads.length)
           ? `<div class="prac-txt">Руководит${pr.heads.length > 1 ? "ели" : "ель"}:</div>` + teacherList(pr.heads) : ""}
       </div>
@@ -2262,9 +2280,11 @@ function renderWeek(){
     else if(!pairs.length){ badge = "нет пар"; cls = "zero"; }
     else badge = `${pairs.length} ${plural(pairs.length,"пара","пары","пар")}`;
 
+    const prSlots = prac ? (prac[0].slots || []) : [];
     const range = pairs.length && pairs[0].start && pairs[pairs.length-1].end
       ? `${pairs[0].start} — ${pairs[pairs.length-1].end}`
-      : (prac && (prac[0].start || prac[0].end) ? `${prac[0].start || ""} — ${prac[0].end || ""}`.replace(/^ — | — $/g, "") : "");
+      : (prSlots.length ? `${prSlots[0].start} — ${prSlots[prSlots.length-1].end}`
+        : (prac && (prac[0].start || prac[0].end) ? `${prac[0].start || ""} — ${prac[0].end || ""}`.replace(/^ — | — $/g, "") : ""));
     const items = pairs.map(p => `
       <div class="wk-item${p.changed && !allChanged ? " ch" : ""}">
         <span class="wt">${esc(p.start || "")}</span>

@@ -284,13 +284,23 @@ test("день практики: карточка практики вместо 
   assert.match(prac.textContent, /36\s*ч/);
   assert.match(prac.textContent, /Сарайло Лариса Владимировна/, "руководитель практики виден");
   assert.match(prac.textContent, /02\/11-08\/11\/2026/, "период практики виден");
-  // интервал практики разложен по парам: начало и конец каждой видны
+  // практика идёт с 1 по 6 пару: видно начало и конец каждой пары
   const slots = prac.querySelectorAll(".prac-slot");
-  assert.equal(slots.length, 5, "08:00–16:00 — это пары I–V по звонкам");
+  assert.equal(slots.length, 6, "рамка практики — пары I–VI");
   assert.match(slots[0].textContent, /I/);
   assert.match(slots[0].textContent, /08:00–09:20/);
-  assert.match(slots[4].textContent, /V/);
-  assert.match(slots[4].textContent, /14:20–15:40/);
+  assert.match(slots[5].textContent, /VI/);
+  assert.match(slots[5].textContent, /15:50–17:10/);
+  // общее окно и окно каждой подгруппы (по 3 пары подряд)
+  assert.match(prac.textContent, /пары I–VI · 08:00–17:10/);
+  const subs = prac.querySelectorAll(".prac-sub");
+  assert.equal(subs.length, 2);
+  assert.match(subs[0].textContent, /1 п\/гр/);
+  assert.match(subs[0].textContent, /пары I–III/);
+  assert.match(subs[0].textContent, /08:00–12:40/);
+  assert.match(subs[1].textContent, /2 п\/гр/);
+  assert.match(subs[1].textContent, /пары IV–VI/);
+  assert.match(subs[1].textContent, /12:50–17:10/);
   assert.ok(!view.querySelector(".state"), "экрана «Занятий нет» нет");
   assert.ok(!/Нет учебных занятий/i.test(view.textContent),
     "служебный alert «Нет учебных занятий» не дублируется предупреждением");

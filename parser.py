@@ -523,33 +523,21 @@ def _card_header_times(header):
     return "", ""
 
 
-def _to_minutes(t):
-    """"08:00" -> минуты от полуночи, или None."""
-    m = re.fullmatch(r"(\d{1,2}):(\d{2})", t or "")
-    if not m:
-        return None
-    return int(m.group(1)) * 60 + int(m.group(2))
+# Практика всегда занимает рамку с 1-й по 6-ю пару включительно:
+# каждая подгруппа занимается 3 пары подряд, стандартное разбиение —
+# 1 п/гр: пары I–III, 2 п/гр: пары IV–VI. Заголовочный интервал карточки
+# вроде «08:00–16:00» лишь приблизителен, поэтому честное начало/конец
+# каждой пары считаем по звонкам, а не по этой записи.
+PRACTICE_FRAME = ("I", "II", "III", "IV", "V", "VI")
 
 
-def practice_slots(start, end, bells):
-    """Какие пары звонков попадают в интервал практики.
-
-    Практика идёт по обычным звонкам: интервал «08:00–16:00» покрывает
-    пары I–VI (08:00–15:50). Пара считается входящей, если пересечение
-    с интервалом практики не меньше 30 минут — тогда случайный
-    «хвостик» в десять минут не рисует лишнюю пару, а каждая пара
-    показывается с её честным временем по звонкам.
-    """
-    ps, pe = _to_minutes(start), _to_minutes(end)
-    if ps is None or pe is None or pe <= ps:
-        return []
+def practice_slots(bells):
+    """Пары рамки практики (I–VI) с их временем по звонкам."""
     out = []
-    for numeral, (bs, be) in bells.items():
-        b0, b1 = _to_minutes(bs), _to_minutes(be)
-        if b0 is None or b1 is None:
-            continue
-        if min(b1, pe) - max(b0, ps) >= 30:
-            out.append({"n": numeral, "start": bs, "end": be})
+    for numeral in PRACTICE_FRAME:
+        t = bells.get(numeral)
+        if t is not None:
+            out.append({"n": numeral, "start": t[0], "end": t[1]})
     return out
 
 
@@ -755,13 +743,14 @@ def build_day(group_id, date, html_text, bells):
             "parts": parts if len(parts) > 1 else [],
         })
     pairs.sort(key=lambda x: (x["num"] or 99, x["start"] or "99:99"))
-    # Практике добавляем раскладку по парам: интервал из карточки
-    # раскладываем по звонкам, чтобы было видно начало/конец каждой
-    # пары практики, а не только «практика сегодня».
+    # Практике добавляем раскладку по парам: практика занимает пары I–VI
+    # (подгруппы — по 3 пары), поэтому показываем честное начало и конец
+    # каждой пары по звонкам, а не приблизительный интервал карточки.
+    day_slots = practice_slots(bells)
     practice = []
     for pr in d["practice"]:
         pr = dict(pr)
-        pr["slots"] = practice_slots(pr.get("start", ""), pr.get("end", ""), bells)
+        pr["slots"] = list(day_slots)
         practice.append(pr)
     return {
         "ok": True,

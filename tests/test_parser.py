@@ -152,17 +152,23 @@ class TestDayVariants(unittest.TestCase):
         self.assertIn(("Мингазова А.А.", 108), heads)
         self.assertTrue(d["published"],
                         "«Нет учебных занятий» ≠ «не опубликовано»")
-        # интервал 08:00–16:00 разложен на пары по звонкам с началом
-        # и концом каждой пары практики (fallback-звонки: V кончается
-        # в 15:40, VI начинается 15:50 и в 16:00 почти не попадает)
+        # практика занимает рамку пар I–VI: каждая пара с честным
+        # началом и концом по звонкам, заголовочный «08:00–16:00»
+        # лишь приблизителен и на раскладку не влияет
         self.assertEqual([s["n"] for s in pr["slots"]],
-                         ["I", "II", "III", "IV", "V"])
+                         ["I", "II", "III", "IV", "V", "VI"])
         self.assertEqual((pr["slots"][0]["start"], pr["slots"][0]["end"]),
                          ("08:00", "09:20"))
         self.assertEqual((pr["slots"][-1]["start"], pr["slots"][-1]["end"]),
-                         ("14:20", "15:40"))
-        # на настоящих звонках сайта (VI = 14:40–15:50) интервал
-        # 08:00–16:00 покрывает шесть пар
+                         ("15:50", "17:10"))
+        # подгруппы идут по 3 пары подряд: 1 п/гр — I–III (08:00–12:40),
+        # 2 п/гр — IV–VI (12:50–17:10); фронт раскладывает slots пополам
+        first_half, second_half = pr["slots"][:3], pr["slots"][3:]
+        self.assertEqual((first_half[0]["start"], first_half[-1]["end"]),
+                         ("08:00", "12:40"))
+        self.assertEqual((second_half[0]["start"], second_half[-1]["end"]),
+                         ("12:50", "17:10"))
+        # на субботних звонках (пары по 1:10) окна короче сами собой
         site_bells = {r: (s, e) for r, s, e in [
             ("I", "08:00", "09:10"), ("II", "09:20", "10:30"),
             ("III", "10:40", "11:50"), ("IV", "12:00", "13:10"),
@@ -179,8 +185,9 @@ class TestDayVariants(unittest.TestCase):
         self.assertEqual(pr2["room"], "203м")
         self.assertIn(("Хазипова Л.Н.", 77),
                       [(h["short"], h.get("id")) for h in pr2["heads"]])
-        self.assertEqual(pr2["slots"], [],
-                         "без интервала в карточке пары не выдумываем")
+        self.assertEqual([s["n"] for s in pr2["slots"]],
+                         ["I", "II", "III", "IV", "V", "VI"],
+                         "рамка пар практики не зависит от вида карточки")
 
     def test_empty_subgroup_kept(self):
         """У пустой половины подгруппы блок сохраняется: иначе предмет
