@@ -74,7 +74,11 @@ class TestTTL(unittest.TestCase):
         if d.weekday() == 6:
             d += timedelta(days=1)
         self.assertEqual(FA.ttl_for(d, TODAY, stored(0)), FA.TTL_FAR)
-        self.assertLessEqual(FA.TTL_FAR, 6 * 3600)
+        # Дальние дни почти всегда не опубликованы, а публикация ловится,
+        # когда дата входит в ближнее окно — поэтому TTL здесь можно держать
+        # большим (это бережёт сайт техникума, P1.2), но не «навсегда».
+        self.assertLessEqual(FA.TTL_FAR, 24 * 3600)
+        self.assertLess(FA.TTL_NEAR, FA.TTL_FAR)
 
 
 class TestWindow(unittest.TestCase):

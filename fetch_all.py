@@ -51,7 +51,10 @@ TZ = ZoneInfo("Europe/Moscow")
 # ----------------------------------------------------------------- TTL (сек)
 TTL_TODAY = 10 * 60          # сегодня — меняется чаще всего (замены, темы, Д/З)
 TTL_NEAR = 10 * 60           # завтра и ближайшие 2 дня: публикация часто в 12–14 МСК
-TTL_FAR = 3 * 3600           # дальше по окну — расписание там обычно ещё не выложено
+# Дальние даты (+4 и далее) почти всегда не опубликованы; когда группа входит
+# в ближнее окно (3 дня), TTL падает до десяти минут и публикация ловится сразу.
+# Поэтому дальние дни можно перепроверять реже — сайту техникума так легче.
+TTL_FAR = 12 * 3600
 TTL_SUNDAY = 12 * 3600       # воскресенья почти всегда пустые
 TTL_PAST = 12 * 3600         # прошлое без расписания — вдруг выложат задним числом
 TTL_SETTLED = 7 * 24 * 3600  # прошедший опубликованный день уже не изменится
@@ -164,7 +167,8 @@ def payload_key(data):
 # Версия формата дня. Её увеличение заставляет бота один раз перекачать всё
 # окно: иначе после доработки парсера старые файлы остались бы без новых полей
 # (например, без id преподавателей) до истечения их собственного TTL.
-SCHEMA = 4
+# 5: practice[] (карточки практики дня), defenses[], сохранение пустых подгрупп.
+SCHEMA = 8  # v5: practice[]; v6: короткий заголовок; v7-v8: slots практики I–VI
 
 
 def ttl_for(d: Date, today: Date, stored):
@@ -274,7 +278,7 @@ def main():
 
         url = f"{SITE}/2020/site/schedule/group/{gid}/{date_s}"
         html_txt = http_get(url)
-        if "Страничка не найдена" in html_txt:
+        if P.looks_like_404(html_txt):
             raise ValueError("страница не найдена (404)")
 
         data = P.build_day(gid, date_s, html_txt, bell_map)
@@ -504,6 +508,13 @@ def collect_teachers(data_dir, dates, workers=4):
                         if tid:
                             seen.setdefault(int(tid), {}).update(
                                 {k: v for k, v in t.items() if v and k != "id"})
+                # руководители практики — тоже преподаватели с фото и карточкой
+                for pr in day.get("practice", []):
+                    for t in pr.get("heads", []):
+                        tid = t.get("id")
+                        if tid:
+                            seen.setdefault(int(tid), {}).update(
+                                {k: v for k, v in t.items() if v and k != "id"})
     if not seen:
         log("Педсостав: id преподавателей в расписании не найдены")
         return
@@ -641,6 +652,24 @@ def build_indexes(data_dir, groups, dates):
                 if tid:
                     row_l["ti"] = tid           # id для аватара в поиске
                 lessons_per_date[date_s].append(row_l)
+            # практика: руководители и место тоже должны находиться поиском
+            for pr in d.get("practice") or []:
+                tlist = pr.get("heads") or []
+                tid_p = next((t.get("id") for t in tlist if t.get("id")), None)
+                subj_p = pr.get("short") or ""
+                if pr.get("full") and pr["full"] != subj_p:
+                    subj_p = (subj_p + " · " + pr["full"]).strip(" ·") if subj_p else pr["full"]
+                row_p = {
+                    "g": gid, "gn": names.get(gid, ""),
+                    "n": "", "s": pr.get("start", ""), "e": pr.get("end", ""),
+                    "subj": subj_p,
+                    "t": " / ".join(t.get("full") or t.get("short", "") for t in tlist),
+                    "r": pr.get("room", ""),
+                    "sg": "", "ch": 0, "pr": 1,
+                }
+                if tid_p:
+                    row_p["ti"] = tid_p
+                lessons_per_date[date_s].append(row_p)
         if row:
             g_index[str(gid)] = row
 

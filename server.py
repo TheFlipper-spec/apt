@@ -23,6 +23,7 @@ import threading
 import urllib.error
 import urllib.request
 import concurrent.futures as cf
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs, unquote
 
@@ -45,12 +46,16 @@ SITE = "https://almetpt.ru"
 
 GROUPS_TTL = 6 * 3600          # список групп — раз в 6 часов
 DAY_TTL = 10 * 60              # расписание дня — 10 минут
+DAY_NEG_TTL = 90               # ошибка/404 по дню — короткий негативный кэш,
+                               # чтобы не дёргать сайт на каждый запрос
 BELLS_TTL = 24 * 3600
 LESSONS_TTL = 15 * 60
 
 _lock = threading.Lock()
 _mem = {"groups": None, "groups_ts": 0, "bells": None, "bells_ts": 0,
         "days": {}, "lessons": {}}
+_flights = {}                  # key -> threading.Event: один запрос наружу
+                               # на один (группа, дата), остальные ждут
 
 
 def http_get(url, timeout=20):
@@ -138,20 +143,52 @@ def bell_map():
 
 
 def get_day(group_id, date):
-    """date: YYYY-MM-DD"""
+    """date: YYYY-MM-DD.
+
+    Одинаковые одновременные запросы ждут один исходящий (single-flight),
+    неудачи кэшируются на короткое время (negative cache) — иначе десяток
+    клиентов, смотрящих одну группу, превращался в десяток запросов к сайту.
+    """
     key = f"{group_id}_{date}"
     now = time.time()
     with _lock:
         ent = _mem["days"].get(key)
-        if ent and now - ent["ts"] < DAY_TTL:
-            return ent["data"]
+        if ent:
+            ttl = DAY_NEG_TTL if ent.get("neg") else DAY_TTL
+            if now - ent["ts"] < ttl:
+                return ent["data"]
+        ev = _flights.get(key)
+        if ev is None:
+            ev = threading.Event()
+            _flights[key] = ev
+            owner = True
+        else:
+            owner = False
+    if not owner:
+        ev.wait(timeout=30)                      # ждём чужой запрос…
+        with _lock:
+            ent = _mem["days"].get(key)
+            if ent:
+                return ent["data"]
+        # владелец упал, не записав результат, — пробуем сами
+        return get_day(group_id, date)
+    try:
+        return _fetch_day(group_id, date, key)
+    finally:
+        with _lock:
+            _flights.pop(key, None)
+            ev.set()
+
+
+def _fetch_day(group_id, date, key):
+    now = time.time()
     url = f"{SITE}/2020/site/schedule/group/{group_id}/{date}"
     disk_path = os.path.join(CACHE_DIR, f"day_{key}.json")
     mirror_path = os.path.join(MIRROR_DATA_DIR, "d", str(group_id), f"{date}.json")
     bundled_path = os.path.join(DATA_DIR, "d", str(group_id), f"{date}.json")
     try:
         html = http_get(url)
-        if "Страничка не найдена" in html:
+        if P.looks_like_404(html):
             raise ValueError("page 404")
         data = P.build_day(int(group_id), date, html, bell_map())
         if not data.get("group") and not data.get("pairs"):
@@ -170,14 +207,17 @@ def get_day(group_id, date):
                       (_read_json(disk_path), _read_json(mirror_path), _read_json(bundled_path))
                       if item and item.get("ok")), None)
         if saved:
-            saved["stale"] = True
+            saved = dict(saved, stale=True)
             with _lock:
                 _mem["days"][key] = {"data": saved, "ts": now}
             return saved
-        return {"ok": False,
+        data = {"ok": False,
                 "error": f"Не удалось получить расписание ({e.__class__.__name__}). "
                          "Проверьте соединение или попробуйте позже.",
                 "groupId": int(group_id), "date": date}
+        with _lock:                                 # negative cache: повторный запрос
+            _mem["days"][key] = {"data": data, "ts": now, "neg": True}   # не идёт на сайт
+        return data
 
 
 def get_lessons(date):
@@ -204,6 +244,13 @@ def get_lessons(date):
                             "t": p.get("teacher", ""), "r": p.get("room", ""),
                             "sg": p.get("subgroup", ""),
                             "ch": 1 if p.get("changed") else 0})
+            for pr in (d.get("practice") or []):
+                heads = pr.get("heads") or []
+                out.append({"g": g["id"], "gn": g["name"], "n": "",
+                            "s": pr.get("start", ""), "e": pr.get("end", ""),
+                            "subj": pr.get("short", "") or pr.get("full", ""),
+                            "t": " / ".join(t.get("full") or t.get("short", "") for t in heads),
+                            "r": pr.get("room", ""), "sg": "", "ch": 0, "pr": 1})
     data = {"ok": True, "date": date, "lessons": out}
     with _lock:
         _mem["lessons"][date] = {"data": data, "ts": now}
@@ -310,7 +357,14 @@ class H(BaseHTTPRequestHandler):
         self._send(404, {"ok": False, "error": "not found"})
 
     def _valid_date(self, date):
-        if not re.fullmatch(r"\d{4}-\d{2}-\d{2}", date) or not (2020 <= int(date[:4]) <= 2100):
+        ok = bool(re.fullmatch(r"\d{4}-\d{2}-\d{2}", date))
+        if ok:
+            try:                                    # 2026-99-99 формат проходит,
+                dt = datetime.strptime(date, "%Y-%m-%d")      # но датой не является
+                ok = 2020 <= dt.year <= 2100
+            except ValueError:
+                ok = False
+        if not ok:
             self._send(400, {"ok": False, "error": "Некорректная дата"})
             return False
         return True

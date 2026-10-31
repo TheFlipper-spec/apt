@@ -262,9 +262,109 @@ test("в разметке нет остатков вида undefined/NaN", async
 
 /* ------------------------------------------- совместимость и мелкая механика */
 test("старые данные бота (без parts) рендерятся без ошибок", async () => {
-  const dom = await boot({ hash: "#/1042/2026-10-01", fetchOpts: { real: true } });
+  // старый формат дня: парные варианты подгрупп ещё не расписаны (parts нет)
+  const day = JSON.parse(
+    fs.readFileSync(path.join(WEB, "data/d/9001/2026-10-05.json"), "utf8"));
+  day.pairs.forEach((p) => { delete p.parts; delete p.variants; });
+  const dom = await boot({ hash: "#/9001/2026-10-05",
+                           fetchOpts: { override: { "data/d/9001/2026-10-05.json": day } } });
   assert.ok(dom.window.document.querySelector("#view .view"));
   assert.ok(all(dom, ".pair-card").length > 0, "пары из старого формата видны");
+  assert.ok(!/undefined|NaN/.test(dom.window.document.querySelector("#view").innerHTML));
+  dom.window.close();
+});
+
+test("день практики: практика идёт обычными карточками пар I–VI", async () => {
+  const dom = await boot({ hash: "#/9002/2026-10-11" });
+  const view = dom.window.document.querySelector("#view");
+  const cards = all(dom, ".pair-card");
+  assert.equal(cards.length, 6, "практика разложена на пары I–VI");
+
+  // у каждой пары своё время по звонкам
+  assert.match(cards[0].textContent, /08:00–09:20/);
+  assert.match(cards[2].textContent, /11:20–12:40/);
+  assert.match(cards[5].textContent, /15:50–17:10/);
+
+  // карточка плоская: номер подгруппы не зашит (очерёдность смен
+  // техникум чередует), зато оба руководителя видны в каждой карточке
+  assert.ok(!cards[0].querySelector(".sub-card"));
+  assert.match(cards[0].querySelector(".pc-subj").textContent, /УП слесарная/);
+  assert.match(cards[0].textContent, /331/);
+  assert.match(cards[0].textContent, /Сарайло Лариса Владимировна/);
+  assert.match(cards[0].textContent, /Мингазова Альфия Ахатовна/);
+  assert.match(cards[3].textContent, /Сарайло Лариса Владимировна/);
+  assert.match(cards[3].textContent, /Мингазова Альфия Ахатовна/);
+
+  // честная подсказка: 6 пар делятся на две смены по 3 подряд
+  assert.match(view.textContent, /3 пары подряд: I–III или IV–VI/);
+  assert.match(view.textContent, /руководитель практики/);
+
+  // сводка дня как у обычного расписания
+  assert.match(view.textContent, /6 пар/);
+  assert.match(view.textContent, /08:00 — 17:10/);
+
+  // вторая (редкая) карточка практики из фикстуры — компактной сводкой
+  const prac = view.querySelector(".prac");
+  assert.ok(prac, "дополнительная практика показана компактно");
+  assert.match(prac.textContent, /203м/);
+  assert.match(prac.textContent, /Хазипова Лилия Наилевна/);
+  assert.ok(!prac.querySelector(".prac-sub"), "подгруппы в сводке не зашиты");
+
+  assert.ok(!view.querySelector(".state"), "экрана «Занятий нет» нет");
+  assert.ok(!/Нет учебных занятий/i.test(view.textContent),
+    "служебный alert «Нет учебных занятий» не дублируется предупреждением");
+
+  // выбор подгруппы не прячет пары практики: очерёдность смен заранее
+  // неизвестна, поэтому все 6 пар остаются на месте
+  dom.window.document.querySelector("#subPick [data-sub='1']").click();
+  await new Promise((r) => setTimeout(r, 80));
+  assert.equal(all(dom, ".pair-card").length, 6,
+    "практика не привязана к номеру подгруппы — пары остаются");
+  dom.window.close();
+});
+
+test("практика видна и в обзоре недели, и в поиске", async () => {
+  const dom = await boot({ hash: "#/9002/2026-10-11", storage: { "apt.mode": "week" } });
+  const w = dom.window;
+  for (let i = 0; i < 200; i++) {
+    await new Promise((r) => setTimeout(r, 10));
+    if (w.document.querySelector(".wk-list .wk-day")) break;
+  }
+  const wk = all(dom, ".wk-day").find((d) => /11/.test(d.querySelector(".wk-dn b").textContent));
+  assert.ok(wk, "день 11 числа есть в неделе");
+  assert.match(wk.textContent, /практика/i, "у дня метка «практика», а не «нет пар»");
+  assert.match(wk.textContent, /УП слесарная/, "строка практики видна");
+  dom.window.close();
+});
+
+test("пустая половина подгруппы не показывает чужой предмет", async () => {
+  const dom = await boot({ hash: "#/9001/2026-10-09" });
+  const w = dom.window;
+  const multi = all(dom, ".pair-card").find((c) => c.querySelector(".subs"));
+  assert.ok(multi, "пара по подгруппам найдена");
+  const cards = multi.querySelectorAll(".sub-card");
+  assert.equal(cards.length, 2);
+  assert.match(cards[0].textContent, /1\s*п\/гр/);
+  assert.match(cards[0].textContent, /занятия нет/, "у первой подгруппы — честная пустая половина");
+  assert.match(cards[1].textContent, /Информатика/);
+  assert.match(cards[1].textContent, /107/);
+
+  // подгруппа 1: пары I у неё нет — она убирается совсем, остаётся II
+  w.document.querySelector("#subPick [data-sub='1']").click();
+  await new Promise((r) => setTimeout(r, 80));
+  const cards1 = all(dom, ".pair-card");
+  assert.equal(cards1.length, 1, "пустая пара первой подгруппы не показана");
+  assert.match(cards1[0].textContent, /05\.03\/09\.0/);
+  assert.ok(!/Информатика/.test(cards1[0].textContent));
+
+  // подгруппа 2: пара I остаётся и сворачивается в обычную карточку
+  w.document.querySelector("#subPick [data-sub='2']").click();
+  await new Promise((r) => setTimeout(r, 80));
+  const txt = all(dom, ".pair-card").map((c) => c.textContent).join(" ");
+  assert.match(txt, /Информатика/);
+  assert.match(txt, /107/);
+  w.document.querySelector("#subPick [data-sub='0']").click();
+  await new Promise((r) => setTimeout(r, 60));
   dom.window.close();
 });
 
@@ -388,22 +488,17 @@ test("без справочника преподаватель всё равно
   dom.window.close();
 });
 
-test("если весь день из таблицы замен — значков «замена» нет, есть пояснение", async () => {
+test("если весь день из таблицы замен — значков «замена» нет", async () => {
   const day = JSON.parse(
     fs.readFileSync(path.join(WEB, "data/d/9001/2026-10-05.json"), "utf8"));
   day.pairs.forEach((p) => { p.changed = true; });        // так отдаёт настоящий сайт
   const dom = await boot({ hash: "#/9001/2026-10-05",
                            fetchOpts: { override: { "data/d/9001/2026-10-05.json": day } } });
-  const w = dom.window;
   assert.ok(all(dom, ".pair-card").length > 1, "пары отрисованы");
   assert.equal(all(dom, ".pc-chip.changed").length, 0, "у пар нет значка «замена»");
   assert.equal(all(dom, ".pair-card.changed").length, 0, "нет оранжевых рамок");
-  const why = w.document.querySelector("[data-act=whychg]");
-  assert.ok(why, "есть спокойная пометка в сводке");
-  why.click();
-  await new Promise((r) => setTimeout(r, 60));
-  assert.ok(w.document.querySelector("#mdChg").classList.contains("open"), "пояснение открылось");
-  assert.match(w.document.querySelector("#mdChg").textContent, /таблиц[ауы] замен/i);
+  assert.ok(!/замен[аы]/i.test(dom.window.document.querySelector(".strip").textContent),
+    "и в сводке нет шумного счётчика замен");
   dom.window.close();
 });
 
@@ -461,8 +556,8 @@ test("аватар — только фотография, без букв", asyn
   dom.window.close();
 });
 
-test("на настоящих данных бота фото преподавателей подставляются", async () => {
-  const dom = await boot({ hash: "#/1042/2026-09-28", fetchOpts: { real: true } });
+test("фото преподавателей подставляются из зеркального справочника", async () => {
+  const dom = await boot({ hash: "#/9001/2026-10-05" });
   const imgs = all(dom, ".tc-row .ava img");
   assert.ok(imgs.length > 0, "есть фотографии");
   assert.ok(imgs.every((i) => /^data\/teachers\/\d+\.jpg$/.test(i.getAttribute("src"))),
@@ -471,11 +566,24 @@ test("на настоящих данных бота фото преподава�
   dom.window.close();
 });
 
-test("на настоящих данных значков «замена» нет: весь день из таблицы замен", async () => {
-  const dom = await boot({ hash: "#/1042/2026-09-28", fetchOpts: { real: true } });
-  assert.ok(all(dom, ".pair-card").length >= 3);
-  assert.equal(all(dom, ".pc-chip.changed").length, 0);
-  assert.ok(dom.window.document.querySelector("[data-act=whychg]"), "есть пояснение");
+test("неделя целиком из таблицы замен не рисует значков «замена»", async () => {
+  const override = {};
+  for (const iso of ["2026-10-05", "2026-10-07", "2026-10-08", "2026-10-09"]) {
+    const rel = `data/d/9001/${iso}.json`;
+    const day = JSON.parse(fs.readFileSync(path.join(WEB, rel), "utf8"));
+    day.pairs.forEach((p) => { p.changed = true; });
+    override[rel] = day;
+  }
+  const dom = await boot({ hash: "#/9001/2026-10-05",
+                           storage: { "apt.mode": "week" },
+                           fetchOpts: { override } });
+  const w = dom.window;
+  for (let i = 0; i < 200; i++) {
+    await new Promise((r) => setTimeout(r, 10));
+    if (w.document.querySelector(".wk-list .wk-day")) break;
+  }
+  assert.ok(all(dom, ".wk-item").length >= 3, "занятия недели отрисованы");
+  assert.equal(all(dom, ".wk-item.ch").length, 0, "пометок «замена» на всей неделе нет");
   dom.window.close();
 });
 

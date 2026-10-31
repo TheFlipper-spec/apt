@@ -1,11 +1,15 @@
 /* Расписание АПТ — сервис-воркер.
-   Оболочка приложения кэшируется навсегда (до смены версии),
-   данные расписания — «сеть вперёд, кэш как запасной аэродром». */
+   Оболочка приложения кэшируется до смены версии, данные расписания —
+   «сеть вперёд, кэш как запасной аэродром». Версии раздельные: обновление
+   оболочки (интерфейса) больше не сносит сохранённые офлайн-копии данных,
+   а бот при деплое интерфейса прошивает свежий номер SHELL_VERSION —
+   пользователям не нужен Ctrl+Shift+R. */
 "use strict";
 
-const VERSION = "apt-v3";
-const SHELL = `${VERSION}-shell`;
-const DATA = `${VERSION}-data`;
+const SHELL_VERSION = "apt-shell-v5";
+const DATA_VERSION = "apt-data-v1";
+const SHELL = SHELL_VERSION;
+const DATA = DATA_VERSION;
 
 const SHELL_FILES = [
   "./",
@@ -29,7 +33,9 @@ self.addEventListener("install", (e) => {
 self.addEventListener("activate", (e) => {
   e.waitUntil((async () => {
     const keys = await caches.keys();
-    await Promise.all(keys.filter((k) => !k.startsWith(VERSION)).map((k) => caches.delete(k)));
+    await Promise.all(keys
+      .filter((k) => k.startsWith("apt-") && k !== SHELL && k !== DATA)
+      .map((k) => caches.delete(k)));
     if (self.registration.navigationPreload) {
       try { await self.registration.navigationPreload.enable(); } catch (_) { /* ignore */ }
     }

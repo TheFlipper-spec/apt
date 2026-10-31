@@ -114,6 +114,96 @@ def day_not_published():
     6 октября 2026 года не опубликовано</div>""" + GRAF + FOOT
 
 
+def day_practice():
+    """День без пар, но с практикой: alert «Нет учебных занятий» и карточка
+    практики БЕЗ номера пары (название, место, руководители, период, часы).
+
+    Восстановлено по странице группы БУР-252 от 02.11.2026: раньше такая
+    карточка либо исчезала совсем, либо превращалась в «пару» с пустой
+    дисциплиной и аудиторией из карточки практики.
+    """
+    return HEAD + """
+  <div class="alert alert-info">Нет учебных занятий по расписанию</div>
+  <div class="header3">Расписание занятий группы ТМ-241<br>на воскресенье, 11 октября 2026 года</div>
+  <div class="card myCard mb-2">
+    <div class="card-header d-flex">
+      <span class="h5">УП слесарная</span>
+      <span class="text-nowrap ml-auto">08<sup>00</sup> - 16<sup>00</sup></span>
+    </div>
+    <div class="card-body">
+      <div class="d-flex flex-column">
+        <div class="d-flex flex-row align-items-center">
+          <span class="text-nowrap">ауд.<a href="/fulltime/rooms?idAudience=77"
+            title="Слесарная мастерская">331</a></span>
+          <span class="Staff d-md-none" data-id=9874 title="Сарайло Лариса Владимировна">Сарайло&nbsp;Л.В.</span>
+          <span class="Staff d-md-none" data-id=9876 title="Мингазова Альфия Ахатовна">Мингазова&nbsp;А.А.</span>
+          <span class="d-none d-md-block">преп.<span class="h5">Сарайло Лариса Владимировна</span></span>
+        </div>
+        <div class="d-md-none" title="Учебная практика (слесарная)">УП слесарная</div>
+        <div class="d-none d-md-block"><b>УП слесарная</b> <small>Учебная практика (слесарная)</small></div>
+        <div class="bg-light">02/11-08/11/2026</div>
+        <div class="pl-3">Сроки практики: 02/11-08/11/2026 (36 часов)</div>
+      </div>
+    </div>
+  </div>
+  <!-- реальный облик карточки практики: в заголовке только
+       «Практика группы X на <дата>», без названия в теле -->
+  <div class="card myCard mb-2">
+    <div class="card-header d-flex">
+      <span class="h5">Практика группы ТМ-241 на воскресенье, 11 октября 2026 года</span>
+    </div>
+    <div class="card-body">
+      <div class="d-flex flex-column">
+        <div class="d-flex flex-row align-items-center">
+          <span class="text-nowrap">ауд.<span class="h5 font-weight-bold"><a href="/fulltime/rooms?idAudience=41"
+            title="Мастерская">203м</a></span></span>
+          <span class="Staff d-md-none" data-id=77 title="Хазипова Лилия Наилевна">Хазипова&nbsp;Л.Н.</span>
+        </div>
+      </div>
+    </div>
+  </div>
+""" + GRAF + FOOT
+
+
+def day_subgroup_gap():
+    """Пара только у второй подгруппы: у первой блок есть, но пустой.
+
+    Классы subGroup1/subGroup2 стоят на самом контейнере варианта
+    (как на настоящих страницах), а карточка пустой половины содержит
+    только подпись «1 п/гр.» — её нельзя выбрасывать.
+    """
+    body = ['<div class="header3">Расписание занятий группы СА-231б'
+            '<span> на пятницу, 9 октября 2026 года</span></div>']
+    body.append("""
+  <div class="card myCard mb-2">
+    <div class="card-header d-flex">
+      <span class="h3">I</span> пара
+      <span class="text-nowrap ml-auto">08<sup>00</sup> - 09<sup>20</sup></span>
+    </div>
+    <div class="card-body p-0">
+      <div class="d-flex flex-column subGroup1">
+        <div class="d-flex justify-content-between font-italic px-3 pt-1 align-items-baseline">
+          <span class="rounded"><span class="h5">1</span> п/гр.</span>
+        </div>
+      </div>
+      <div class="d-flex flex-column subGroup2">
+        <div class="d-flex justify-content-between font-italic px-3 pt-1 align-items-baseline">
+          <span class="rounded"><span class="h5">2</span> п/гр.</span>
+          <span class="">ауд.<span class="h5 font-weight-bold"><a href='/fulltime/rooms?idAudience=41'
+            title='Кабинет информатики'>107</a></span></span>
+          <span class="Staff" data-id=108 title="Усманова Лилия Мансуровна">Усманова&nbsp;Л.М.</span>
+        </div>
+        <div class="d-none d-md-block"><b>Информатика</b> <small>Информатика</small></div>
+      </div>
+    </div>
+  </div>""")
+    body.append(_pair_card("II", "09:30", "10:50", [
+        {"room": "236", "teacher": "Зинкин Д.В.", "teacherFull": "Зинкин Дмитрий Владимирович",
+         "teacherId": 874, "subject": "05.03/09.0", "subjectFull": "Технологии хранения"}]))
+    body.append(GRAF)
+    return HEAD + "".join(body) + FOOT
+
+
 def day_base_missing():
     """День, где есть только замены — сайт дописывает отдельный alert."""
     return (HEAD

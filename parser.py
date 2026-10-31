@@ -114,6 +114,18 @@ def clean(s):
     return re.sub(r"\s+", " ", t).strip()
 
 
+def looks_like_404(html_text):
+    """Сайт отдаёт «мягкий» 404: код 200, но внутри заглушка.
+
+    Проверять надо регистронезависимо и по нескольким формулировкам —
+    по одной-единственной русской строке ловить ненадёжно.
+    """
+    low = (html_text or "").lower()
+    return ("страничка не найдена" in low
+            or "страница не найдена" in low
+            or "страница отсутствует" in low)
+
+
 # ---------------------------------------------------------------- roman
 def roman_to_int(r):
     vals = {"I": 1, "V": 5, "X": 10, "L": 50, "C": 100}
@@ -221,7 +233,9 @@ def _norm_subgroup(txt):
 def parse_day(html_text):
     """
     Страница /2020/site/schedule/group/<id>/<date> -> dict:
-    {group, dateText, pairs:[...], consultations:[...], graf:[...], notices:[...]}
+    {group, dateText, published, baseMissing,
+     pairs:[...], practice:[...], consultations:[...], graf:[...],
+     defenses:[...], notices:[...]}
     """
     dom = build_dom(html_text)
 
@@ -241,9 +255,11 @@ def parse_day(html_text):
 
     result = {
         "group": "", "dateText": "", "published": True, "baseMissing": False,
-        "pairs": [], "consultations": [], "graf": [], "notices": [],
+        "pairs": [], "practice": [], "consultations": [], "graf": [],
+        "defenses": [], "notices": [],
     }
     section = "head"
+    seen_practice = set()
 
     for kind, node in blocks:
         if kind == "alert":
@@ -275,6 +291,10 @@ def parse_day(html_text):
                 section = "consult"
             elif "График учебного процесса" in title:
                 section = "graf"
+            elif "защит" in title.lower() or "курсов" in title.lower():
+                # «График защиты курсовых проектов» и подобные редкие блоки:
+                # структура там нестабильная, сохраняем текст как есть
+                section = "defense"
             else:
                 section = "other:" + title[:60]
             continue
@@ -284,12 +304,26 @@ def parse_day(html_text):
             pair = _parse_pair_card(node)
             if pair:
                 result["pairs"].append(pair)
+            else:
+                # Карточка без номера пары в секции занятий — это практика
+                # (место, руководитель, часы). Раньше она либо исчезала
+                # вовсе, либо превращалась в «пару» без дисциплины.
+                pr = _parse_practice_card(node)
+                if pr:
+                    k = json_dumps({key: pr[key] for key in ("short", "room", "period")})
+                    if k not in seen_practice:
+                        seen_practice.add(k)
+                        result["practice"].append(pr)
         elif section == "consult":
             txt = node.norm_text()
             if txt:
                 result["consultations"].append(txt)
         elif section == "graf":
             result["graf"].extend(_parse_graf_card(node))
+        elif section == "defense":
+            txt = node.norm_text()
+            if txt:
+                result["defenses"].append(txt)
 
     return result
 
@@ -322,13 +356,7 @@ def _parse_pair_card(card):
     if not numeral or roman_to_int(numeral) <= 0:
         return None
 
-    time_spans = find_all(header, lambda n: n.tag == "span")
-    t_start = t_end = ""
-    for sp in time_spans:
-        raw = clean(sp.text()).replace(" ", "")
-        if re.fullmatch(r"\d{3,4}-\d{3,4}", raw):
-            t_start, t_end = _parse_time(raw)
-            break
+    t_start, t_end = _card_header_times(header)
 
     body = first(card, lambda n: n.tag == "div" and n.has_class("card-body"))
     rows = []
@@ -376,41 +404,55 @@ def _parse_pair_card(card):
     }
 
 
-def _parse_variant(rd):
-    # подгруппа
+def _detect_subgroup(rd):
+    """Подгруппа варианта.
+
+    На сайте маркер subGroup1/subGroup2 стоит на самом контейнере варианта
+    (div.d-flex.flex-column.subGroup1), поэтому сначала смотрим его классы.
+    Запасной путь — span.rounded внутри и его текст («1 п/гр.»).
+    """
+    cl = rd.classes()
+    if "subGroup1" in cl:
+        return "1 п/гр."
+    if "subGroup2" in cl:
+        return "2 п/гр."
+    if "nosubGroup" in cl:
+        return ""
     sub_span = first(rd, lambda n: n.tag == "span" and n.has_class("rounded"))
-    subgroup = ""
     if sub_span:
         for s in find_all(sub_span, lambda n: n.tag == "span"):
-            cl = s.classes()
-            lbl = s.norm_text()
-            if not lbl:
+            c2 = s.classes()
+            if not s.norm_text():
                 continue
-            if "subGroup1" in cl:
-                subgroup = "1 п/гр."
-            elif "subGroup2" in cl:
-                subgroup = "2 п/гр."
-            elif "nosubGroup" in cl:
-                subgroup = ""
-        if not subgroup:
-            subgroup = _norm_subgroup(sub_span.norm_text())
+            if "subGroup1" in c2:
+                return "1 п/гр."
+            if "subGroup2" in c2:
+                return "2 п/гр."
+            if "nosubGroup" in c2:
+                return ""
+        return _norm_subgroup(sub_span.norm_text())
+    return ""
+
+
+def _extract_room(scope):
     # аудитория
-    room, room_title = "", ""
-    for sp in find_all(rd, lambda n: n.tag == "span"):
+    for sp in find_all(scope, lambda n: n.tag == "span"):
         t = sp.text()
-        if "ауд." in t:
-            a = first(sp, lambda n: n.tag == "a")
-            if a is not None and clean(a.text()):
-                room = clean(a.text())
-                room_title = clean(a.attrs.get("title", ""))
-            else:
-                inner = first(sp, lambda n: n.tag == "span" and n.has_class("h5"))
-                room = clean(inner.text()) if inner else clean(t).replace("ауд.", "").strip()
-                room = room.replace("ауд.", "").strip()
-            break
-    # преподаватель(и)
+        if "ауд." not in t:
+            continue
+        a = first(sp, lambda n: n.tag == "a")
+        if a is not None and clean(a.text()):
+            return clean(a.text()), clean(a.attrs.get("title", ""))
+        inner = first(sp, lambda n: n.tag == "span" and n.has_class("h5"))
+        room = clean(inner.text()) if inner else clean(t)
+        return room.replace("ауд.", "").strip(), ""
+    return "", ""
+
+
+def _extract_staff(scope):
+    """Преподаватели/руководители: span.Staff с коротким и полным именем."""
     teachers = []
-    for st in find_all(rd, lambda n: n.tag == "span" and n.has_class("Staff")):
+    for st in find_all(scope, lambda n: n.tag == "span" and n.has_class("Staff")):
         short = clean(st.text())
         full = clean(st.attrs.get("title", ""))
         # id ведёт на карточку преподавателя: /2020/site/html/teacherinfo/<id>
@@ -420,13 +462,18 @@ def _parse_variant(rd):
             if tid.isdigit():
                 t["id"] = int(tid)
             teachers.append(t)
-    full_span = None
+    return teachers
+
+
+def _full_teacher_line(rd):
     for sp in find_all(rd, lambda n: n.tag == "span" and n.has_class("d-none", "d-md-block")):
         if "преп." in sp.text():
             inner = first(sp, lambda n: n.tag == "span" and n.has_class("h5"))
-            full_span = clean(inner.text()) if inner else clean(sp.text()).replace("преп.", "").strip()
-            break
-    # дисциплина
+            return clean(inner.text()) if inner else clean(sp.text()).replace("преп.", "").strip()
+    return None
+
+
+def _variant_subject(rd):
     subj, subj_full = "", ""
     desk = first(rd, lambda n: n.tag == "div" and n.has_class("d-none", "d-md-block"))
     if desk is not None:
@@ -439,7 +486,19 @@ def _parse_variant(rd):
         if mob is not None:
             subj = clean(mob.text())
             subj_full = clean(mob.attrs.get("title", ""))
-    if not (room or teachers or subj):
+    return subj, subj_full
+
+
+def _parse_variant(rd):
+    subgroup = _detect_subgroup(rd)
+    room, room_title = _extract_room(rd)
+    teachers = _extract_staff(rd)
+    full_span = _full_teacher_line(rd)
+    subj, subj_full = _variant_subject(rd)
+    # Вариант без дисциплины/аудитории/преподавателя, но с подписью
+    # подгруппы — это «у этой подгруппы занятия нет». Его нельзя выбрасывать:
+    # иначе предмет соседней подгруппы показывается как предмет всей группы.
+    if not (room or teachers or subj or subgroup):
         return None
     return {
         "subgroup": subgroup,
@@ -452,6 +511,87 @@ def _parse_variant(rd):
         "topics": [],
         "homework": [],
         "notes": [],
+    }
+
+
+def _card_header_times(header):
+    """Время из заголовка карточки («I пара 08:00 - 09:20» / sup-разметка)."""
+    for sp in find_all(header, lambda n: n.tag == "span"):
+        raw = clean(sp.text()).replace(" ", "")
+        if re.fullmatch(r"\d{3,4}-\d{3,4}", raw):
+            return _parse_time(raw)
+    return "", ""
+
+
+# Практика всегда занимает рамку с 1-й по 6-ю пару включительно:
+# каждая подгруппа занимается 3 пары подряд, стандартное разбиение —
+# 1 п/гр: пары I–III, 2 п/гр: пары IV–VI. Заголовочный интервал карточки
+# вроде «08:00–16:00» лишь приблизителен, поэтому честное начало/конец
+# каждой пары считаем по звонкам, а не по этой записи.
+PRACTICE_FRAME = ("I", "II", "III", "IV", "V", "VI")
+
+
+def practice_slots(bells):
+    """Пары рамки практики (I–VI) с их временем по звонкам."""
+    out = []
+    for numeral in PRACTICE_FRAME:
+        t = bells.get(numeral)
+        if t is not None:
+            out.append({"n": numeral, "start": t[0], "end": t[1]})
+    return out
+
+
+def _parse_practice_card(card):
+    """Карточка практики в секции занятий: та же структура, что у пары,
+    но без номера пары. Отсюда берём название, место, руководителей,
+    период и часы — раньше такие карточки просто пропадали."""
+    header = first(card, lambda n: n.tag == "div" and n.has_class("card-header"))
+    body = first(card, lambda n: n.tag == "div" and n.has_class("card-body")) or card
+
+    # если в заголовке есть номер пары — это всё-таки пара, не практика
+    if header is not None:
+        n_rom = first(header, lambda n: n.tag == "span" and n.has_class("h3"))
+        if n_rom is not None and roman_to_int(clean(n_rom.text())) > 0:
+            return None
+
+    t_start = t_end = ""
+    if header is not None:
+        t_start, t_end = _card_header_times(header)
+
+    short, full = _variant_subject(body)
+    if not short and header is not None:
+        # заголовок без номера: «Практика группы СА-231б на пятницу,
+        # 30 октября 2026 года» → просто «Практика»; группу и дату
+        # не повторяем — они и так видны на странице дня.
+        txt = header.norm_text()
+        txt = re.sub(r"\d{1,2}\s*\d{2}\s*-\s*\d{1,2}\s*\d{2}", " ", txt)
+        txt = re.sub(r"\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}", " ", txt)
+        cut = re.search(r"\s+группы\s+", txt)
+        if cut is not None:
+            txt = txt[:cut.start()]
+        short = clean(txt)
+
+    teachers = _extract_staff(body)
+    room, room_title = _extract_room(body)
+    hours_m = re.search(r"\((\d+)\s*час", body.text())
+    period = ""
+    bg = first(body, lambda n: n.tag == "div" and "bg-light" in n.classes())
+    if bg is not None:
+        parts = [p.strip() for p in clean(bg.text()).split(",") if p.strip()]
+        period = ", ".join(dict.fromkeys(parts))
+
+    if not (short or full or teachers or room or period):
+        return None
+    return {
+        "short": short,
+        "full": full,
+        "start": t_start,
+        "end": t_end,
+        "room": room,
+        "roomTitle": room_title,
+        "heads": teachers,
+        "hours": hours_m.group(1) if hours_m else "",
+        "period": period,
     }
 
 
@@ -569,6 +709,12 @@ def build_day(group_id, date, html_text, bells):
             teachers = [t for x in parts for t in x["teachers"]]
             subgroup = ""
 
+        # Карточка с номером пары, но совсем без содержимого — мусор
+        # (обрезанная вёрстка, пустая оболочка). Пару не создаём.
+        if (not any(x["subject"] or x["room"] or x["teachers"] for x in parts)
+                and not (p["topics"] or p["homework"] or p["notes"])):
+            continue
+
         # у одиночной пары детали показываем прямо на карточке,
         # у пары «по подгруппам» — внутри блока своей подгруппы
         if len(parts) == 1:
@@ -597,6 +743,15 @@ def build_day(group_id, date, html_text, bells):
             "parts": parts if len(parts) > 1 else [],
         })
     pairs.sort(key=lambda x: (x["num"] or 99, x["start"] or "99:99"))
+    # Практике добавляем раскладку по парам: практика занимает пары I–VI
+    # (подгруппы — по 3 пары), поэтому показываем честное начало и конец
+    # каждой пары по звонкам, а не приблизительный интервал карточки.
+    day_slots = practice_slots(bells)
+    practice = []
+    for pr in d["practice"]:
+        pr = dict(pr)
+        pr["slots"] = list(day_slots)
+        practice.append(pr)
     return {
         "ok": True,
         "groupId": int(group_id),
@@ -606,8 +761,10 @@ def build_day(group_id, date, html_text, bells):
         "published": d["published"],
         "baseMissing": d["baseMissing"],
         "pairs": pairs,
+        "practice": practice,
         "consultations": d["consultations"],
         "graf": d["graf"],
+        "defenses": d["defenses"],
         "notices": d["notices"],
         "fetchedAt": 0,
         "stale": False,
