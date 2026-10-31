@@ -1799,16 +1799,65 @@ function sortPairs(pairs){
     return (a.num || 99) - (b.num || 99);
   });
 }
+/* День чистой практики раскладывается в обычные карточки пар:
+   рамка I–VI; каждая подгруппа занимается 3 пары подряд
+   (1 п/гр — I–III, 2 п/гр — IV–VI) и у неё свой руководитель.
+   У «неудобной» половины пары помечаем «занятия нет» — тогда
+   работает и штатный фильтр подгрупп, и таймлайн, и перемены. */
+function practicePairs(pr){
+  const slots = pr.slots || [];
+  if(!slots.length) return [];
+  const heads = pr.heads || [];
+  const t1 = heads[0] || null;
+  const t2 = (heads.length > 1 ? heads[1] : heads[0]) || null;
+  const title = pr.short || pr.full || "Практика";
+  const full = pr.full && pr.full !== title ? pr.full : "";
+  const half = Math.ceil(slots.length / 2);
+  const mk = (sub, t) => ({
+    subgroup: sub, subject: title, subjectFull: full,
+    room: pr.room || "", roomTitle: pr.roomTitle || "",
+    teacher: t ? (t.full || t.short || "") : "",
+    teachers: t ? [t] : [],
+    topics: [], homework: [], notes: [],
+  });
+  const emp = sub => ({subgroup: sub, subject: "", subjectFull: "", room: "",
+                       roomTitle: "", teacher: "", teachers: [],
+                       topics: [], homework: [], notes: []});
+  return slots.map((s, i) => {
+    const first = i < half;
+    const parts = [ first ? mk("1 п/гр.", t1) : emp("1 п/гр."),
+                    first ? emp("2 п/гр.")   : mk("2 п/гр.", t2) ];
+    const v = first ? parts[0] : parts[1];
+    return {
+      n: s.n, num: i + 1, start: s.start, end: s.end,
+      changed: false, practice: true, variants: 2, parts,
+      subgroup: "", subject: v.subject, subjectFull: v.subjectFull,
+      room: v.room, roomTitle: v.roomTitle,
+      teacher: v.teacher, teachers: v.teachers,
+      topics: [], homework: [], notes: [],
+    };
+  });
+}
+
 function renderDay(){
   const j = state.data; if(!j) return;
   const gname = j.group || state.groupName || "";
   document.title = `${gname} · ${fmtHuman(state.date)} — Расписание АПТ`;
   const view = $("#view");
   view.style.setProperty("--slide", (state.slideDir > 0 ? "" : "-") + "22px");
-  const pairs = dayPairs(j);
+  const basePairs = dayPairs(j);
   const isToday = state.date === todayISO();
 
   const practice = j.practice || [];
+  // День практики без обычных пар: практика рисуется обычными
+  // карточками пар (рамка I–VI; каждая подгруппа занимает 3 пары подряд
+  // со своим руководителем), а не одной сводной карточкой — так видно
+  // начало и конец каждой пары, работает фильтр подгрупп и таймлайн.
+  const pracPairs = !basePairs.length && practice.length
+    ? applySub(sortPairs(practicePairs(practice[0]))) : [];
+  const pairs = basePairs.length ? basePairs : pracPairs;
+  const restPractice = basePairs.length ? practice
+    : (pracPairs.length ? practice.slice(1) : practice);
   let html = "";
   // «Нет учебных занятий» в день практики — не предупреждение, а следствие:
   // карточка практики ниже говорит об этом сама, без оранжевой плашки
@@ -1832,7 +1881,7 @@ function renderDay(){
   }
   if(!pairs.length){
     if(practice.length){
-      // день без пар, но с практикой: раньше тут было «Занятий нет»
+      // практика без рамки пар (нет звонков в данных) — сводная карточка
       view.innerHTML = `<div class="view">` + html +
         practiceSec(practice) + grafCard(j) + `</div>`;
       applyUpdLine(j);
@@ -1870,7 +1919,7 @@ function renderDay(){
     c.replace(/class="chip( warn| ok| btn)?"/, `class="chip$1" style="animation-delay:${i*55}ms"`)).join("") + `</div>`;
 
   if(isToday) html += `<div id="nowbarWrap"></div>`;
-  if(practice.length) html += practiceSec(practice, true);
+  if(restPractice.length) html += practiceSec(restPractice, true);
 
   /* ---- лента пар */
   html += `<div class="timeline">`;
@@ -2134,7 +2183,7 @@ function pairCard(p, idx){
         <span class="pc-dur">${esc(p.start || "")}${p.end ? "–" + esc(p.end) : ""}${dur > 0 ? " · " + durText(dur) : ""}</span>
         <span class="pc-state" data-state></span>
       </div>
-      ${multi ? `<div class="pc-subj">Пара по подгруппам</div>` : `
+      ${multi ? `<div class="pc-subj">${p.practice ? esc(p.subject || "Практика") : "Пара по подгруппам"}</div>` : `
       <div class="pc-subj">${esc(p.subject || "—")}</div>
       ${p.subjectFull && p.subjectFull !== p.subject ? `<div class="pc-subjfull">${esc(p.subjectFull)}</div>` : ""}
       ${p.roomTitle ? `<div class="pc-subjfull" style="color:var(--ink-3)">${esc(p.roomTitle)}</div>` : ""}`}

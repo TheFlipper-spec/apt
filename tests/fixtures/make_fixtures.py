@@ -135,8 +135,8 @@ def day_practice():
         <div class="d-flex flex-row align-items-center">
           <span class="text-nowrap">ауд.<a href="/fulltime/rooms?idAudience=77"
             title="Слесарная мастерская">331</a></span>
-          <span class="Staff d-md-none" data-id=874 title="Сарайло Лариса Владимировна">Сарайло&nbsp;Л.В.</span>
-          <span class="Staff d-md-none" data-id=108 title="Мингазова Альфия Ахатовна">Мингазова&nbsp;А.А.</span>
+          <span class="Staff d-md-none" data-id=9874 title="Сарайло Лариса Владимировна">Сарайло&nbsp;Л.В.</span>
+          <span class="Staff d-md-none" data-id=9876 title="Мингазова Альфия Ахатовна">Мингазова&nbsp;А.А.</span>
           <span class="d-none d-md-block">преп.<span class="h5">Сарайло Лариса Владимировна</span></span>
         </div>
         <div class="d-md-none" title="Учебная практика (слесарная)">УП слесарная</div>

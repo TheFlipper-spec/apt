@@ -148,8 +148,8 @@ class TestDayVariants(unittest.TestCase):
         self.assertEqual(pr["hours"], "36")
         self.assertEqual(pr["period"], "02/11-08/11/2026")
         heads = [(h["short"], h.get("id")) for h in pr["heads"]]
-        self.assertIn(("Сарайло Л.В.", 874), heads)
-        self.assertIn(("Мингазова А.А.", 108), heads)
+        self.assertIn(("Сарайло Л.В.", 9874), heads)
+        self.assertIn(("Мингазова А.А.", 9876), heads)
         self.assertTrue(d["published"],
                         "«Нет учебных занятий» ≠ «не опубликовано»")
         # практика занимает рамку пар I–VI: каждая пара с честным

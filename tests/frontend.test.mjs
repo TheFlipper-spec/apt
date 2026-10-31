@@ -274,36 +274,59 @@ test("старые данные бота (без parts) рендерятся б�
   dom.window.close();
 });
 
-test("день практики: карточка практики вместо «Занятий нет»", async () => {
+test("день практики: практика идёт обычными карточками пар I–VI", async () => {
   const dom = await boot({ hash: "#/9002/2026-10-11" });
   const view = dom.window.document.querySelector("#view");
+  const cards = all(dom, ".pair-card");
+  assert.equal(cards.length, 6, "практика разложена на пары I–VI");
+
+  // у каждой пары своё время по звонкам
+  assert.match(cards[0].textContent, /08:00–09:20/);
+  assert.match(cards[2].textContent, /11:20–12:40/);
+  assert.match(cards[5].textContent, /15:50–17:10/);
+
+  // заголовок карточки — название практики, а не «Пара по подгруппам»
+  assert.match(cards[0].querySelector(".pc-subj").textContent, /УП слесарная/);
+
+  // пары I–III — у первой подгруппы со своим руководителем,
+  // у второй половины в это время занятий нет
+  const s1 = cards[0].querySelectorAll(".sub-card");
+  assert.equal(s1.length, 2);
+  assert.match(s1[0].textContent, /1\s*п\/гр/);
+  assert.match(s1[0].textContent, /УП слесарная/);
+  assert.match(s1[0].textContent, /331/);
+  assert.match(s1[0].textContent, /Сарайло Лариса Владимировна/,
+    "руководитель 1 подгруппы виден у её пар");
+  assert.match(s1[1].textContent, /занятия нет/);
+
+  // пары IV–VI — у второй подгруппы со своим руководителем
+  const s4 = cards[3].querySelectorAll(".sub-card");
+  assert.match(s4[0].textContent, /занятия нет/);
+  assert.match(s4[1].textContent, /2\s*п\/гр/);
+  assert.match(s4[1].textContent, /Мингазова Альфия Ахатовна/,
+    "руководитель 2 подгруппы виден у её пар");
+
+  // сводка дня как у обычного расписания
+  assert.match(view.textContent, /6 пар/);
+  assert.match(view.textContent, /08:00 — 17:10/);
+
+  // вторая (редкая) карточка практики из фикстуры — компактной сводкой
   const prac = view.querySelector(".prac");
-  assert.ok(prac, "блок практики отрисован");
-  assert.match(prac.textContent, /УП слесарная/);
-  assert.match(prac.textContent, /331/);
-  assert.match(prac.textContent, /36\s*ч/);
-  assert.match(prac.textContent, /Сарайло Лариса Владимировна/, "руководитель практики виден");
-  assert.match(prac.textContent, /02\/11-08\/11\/2026/, "период практики виден");
-  // практика идёт с 1 по 6 пару: видно начало и конец каждой пары
-  const slots = prac.querySelectorAll(".prac-slot");
-  assert.equal(slots.length, 6, "рамка практики — пары I–VI");
-  assert.match(slots[0].textContent, /I/);
-  assert.match(slots[0].textContent, /08:00–09:20/);
-  assert.match(slots[5].textContent, /VI/);
-  assert.match(slots[5].textContent, /15:50–17:10/);
-  // общее окно и окно каждой подгруппы (по 3 пары подряд)
-  assert.match(prac.textContent, /пары I–VI · 08:00–17:10/);
-  const subs = prac.querySelectorAll(".prac-sub");
-  assert.equal(subs.length, 2);
-  assert.match(subs[0].textContent, /1 п\/гр/);
-  assert.match(subs[0].textContent, /пары I–III/);
-  assert.match(subs[0].textContent, /08:00–12:40/);
-  assert.match(subs[1].textContent, /2 п\/гр/);
-  assert.match(subs[1].textContent, /пары IV–VI/);
-  assert.match(subs[1].textContent, /12:50–17:10/);
+  assert.ok(prac, "дополнительная практика показана компактно");
+  assert.match(prac.textContent, /203м/);
+  assert.match(prac.textContent, /Хазипова Лилия Наилевна/);
+
   assert.ok(!view.querySelector(".state"), "экрана «Занятий нет» нет");
   assert.ok(!/Нет учебных занятий/i.test(view.textContent),
     "служебный alert «Нет учебных занятий» не дублируется предупреждением");
+
+  // фильтр подгрупп работает: у 1 подгруппы только её три первые пары
+  dom.window.document.querySelector("#subPick [data-sub='1']").click();
+  await new Promise((r) => setTimeout(r, 80));
+  const cards1 = all(dom, ".pair-card");
+  assert.equal(cards1.length, 3, "после выбора 1 п/гр остаются пары I–III");
+  assert.match(cards1[0].textContent, /08:00–09:20/);
+  assert.match(cards1[2].textContent, /11:20–12:40/);
   dom.window.close();
 });
 
