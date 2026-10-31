@@ -469,9 +469,6 @@ button.tc-row:focus-visible{outline-offset:3px}
 .prac-txt{margin:7px 0 0;font-size:13px;line-height:1.55;color:var(--ink-2);font-weight:500}
 .prac-slots{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
 .prac-slot b{font-weight:800;color:var(--ink)}
-.prac-subs{display:flex;flex-wrap:wrap;gap:6px;margin-top:9px}
-.prac-sub{font-weight:600}
-.prac-sub b{font-weight:800;color:var(--ink)}
 /* details */
 .dets{margin-top:11px;border-top:1px dashed var(--line-2)}
 .dets-btn{display:flex;align-items:center;gap:8px;width:100%;padding:10px 2px 0;
@@ -1800,43 +1797,26 @@ function sortPairs(pairs){
   });
 }
 /* День чистой практики раскладывается в обычные карточки пар:
-   рамка I–VI; каждая подгруппа занимается 3 пары подряд
-   (1 п/гр — I–III, 2 п/гр — IV–VI) и у неё свой руководитель.
-   У «неудобной» половины пары помечаем «занятия нет» — тогда
-   работает и штатный фильтр подгрупп, и таймлайн, и перемены. */
+   рамка I–VI, у каждой пары своё время по звонкам. Подгруппы делят
+   эти 6 пар по 3 подряд, но очерёдность (1 п/гр первой или второй)
+   техникум чередует и в карточке не публикует — поэтому карточки не
+   привязаны к номеру подгруппы, а рядом стоит честная подсказка.
+   Учителей показываем всех: у каждой подгруппы свой руководитель. */
 function practicePairs(pr){
   const slots = pr.slots || [];
   if(!slots.length) return [];
-  const heads = pr.heads || [];
-  const t1 = heads[0] || null;
-  const t2 = (heads.length > 1 ? heads[1] : heads[0]) || null;
   const title = pr.short || pr.full || "Практика";
   const full = pr.full && pr.full !== title ? pr.full : "";
-  const half = Math.ceil(slots.length / 2);
-  const mk = (sub, t) => ({
-    subgroup: sub, subject: title, subjectFull: full,
+  const heads = pr.heads || [];
+  return slots.map((s, i) => ({
+    n: s.n, num: i + 1, start: s.start, end: s.end,
+    changed: false, practice: true, variants: 1, parts: [],
+    subgroup: "", subject: title, subjectFull: full,
     room: pr.room || "", roomTitle: pr.roomTitle || "",
-    teacher: t ? (t.full || t.short || "") : "",
-    teachers: t ? [t] : [],
+    teacher: heads.length === 1 ? (heads[0].full || heads[0].short || "") : "",
+    teachers: heads,
     topics: [], homework: [], notes: [],
-  });
-  const emp = sub => ({subgroup: sub, subject: "", subjectFull: "", room: "",
-                       roomTitle: "", teacher: "", teachers: [],
-                       topics: [], homework: [], notes: []});
-  return slots.map((s, i) => {
-    const first = i < half;
-    const parts = [ first ? mk("1 п/гр.", t1) : emp("1 п/гр."),
-                    first ? emp("2 п/гр.")   : mk("2 п/гр.", t2) ];
-    const v = first ? parts[0] : parts[1];
-    return {
-      n: s.n, num: i + 1, start: s.start, end: s.end,
-      changed: false, practice: true, variants: 2, parts,
-      subgroup: "", subject: v.subject, subjectFull: v.subjectFull,
-      room: v.room, roomTitle: v.roomTitle,
-      teacher: v.teacher, teachers: v.teachers,
-      topics: [], homework: [], notes: [],
-    };
-  });
+  }));
 }
 
 function renderDay(){
@@ -1919,6 +1899,8 @@ function renderDay(){
     c.replace(/class="chip( warn| ok| btn)?"/, `class="chip$1" style="animation-delay:${i*55}ms"`)).join("") + `</div>`;
 
   if(isToday) html += `<div id="nowbarWrap"></div>`;
+  if(pracPairs.length)
+    html += `<div class="strip"><div class="chip"><svg><use href="#i-wrench"/></svg>Каждая подгруппа занимает 3 пары подряд: I–III или IV–VI. Очерёдность подгрупп чередуется — её объявляет руководитель практики.</div></div>`;
   if(restPractice.length) html += practiceSec(restPractice, true);
 
   /* ---- лента пар */
@@ -2219,12 +2201,6 @@ function practiceSec(list, compact){
   if(!list || !list.length) return "";
   return list.map(pr => {
     const slots = pr.slots || [];
-    // Практика идёт с 1 по 6 пару; подгруппы занимаются по 3 пары
-    // подряд (стандартно: 1 п/гр — пары I–III, 2 п/гр — пары IV–VI).
-    const half = Math.ceil(slots.length / 2);
-    const subs = slots.length >= 2
-      ? [["1 п/гр", slots.slice(0, half)], ["2 п/гр", slots.slice(half)]]
-      : [];
     const spanOf = ss => `${ss[0].start}–${ss[ss.length-1].end}`;
     const chips = [];
     if(slots.length)
@@ -2241,10 +2217,6 @@ function practiceSec(list, compact){
         <b class="ttl">${esc(pr.short || pr.full || "Практика")}</b>
         ${pr.full && pr.full !== pr.short ? `<div class="pc-subjfull">${esc(pr.full)}</div>` : ""}
         ${chips.length ? `<div class="pc-meta">${chips.join("")}</div>` : ""}
-        ${subs.length
-          ? `<div class="prac-subs" title="Каждая подгруппа занимается 3 пары подряд">${subs.map(([sg, ss]) =>
-              `<span class="pc-chip prac-sub"><b>${sg}</b>&nbsp;пары ${esc(ss[0].n)}–${esc(ss[ss.length-1].n)}&nbsp;· ${esc(spanOf(ss))}</span>`).join("")}</div>`
-          : ""}
         ${!compact && slots.length
           ? `<div class="prac-slots">${slots.map(s =>
               `<span class="pc-chip prac-slot"><b>${esc(s.n)}</b>&nbsp;${esc(s.start)}–${esc(s.end)}</span>`).join("")}</div>`
@@ -2683,6 +2655,13 @@ function initPwa(){
   const swc = navigator && navigator.serviceWorker;
   if(!swc || typeof swc.register !== "function") return;
   if(location.protocol !== "https:" && location.hostname !== "localhost") return;
+  let reloaded = false;
+  // новая оболочка активировалась — перезагружаемся сами, без Ctrl+Shift+R
+  swc.addEventListener && swc.addEventListener("controllerchange", () => {
+    if(reloaded) return;
+    reloaded = true;
+    location.reload();
+  });
   swc.register("sw.js").then(reg => {
     reg.addEventListener("updatefound", () => {
       const sw = reg.installing;
