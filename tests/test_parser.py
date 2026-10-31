@@ -138,7 +138,7 @@ class TestDayVariants(unittest.TestCase):
         а не превращается в «пару» с пустой дисциплиной и не исчезает."""
         d = P.build_day(9002, "2026-10-11", F.day_practice(), BELLS)
         self.assertEqual(d["pairs"], [], "пар нет")
-        self.assertEqual(len(d["practice"]), 1)
+        self.assertEqual(len(d["practice"]), 2)
         pr = d["practice"][0]
         self.assertEqual(pr["short"], "УП слесарная")
         self.assertEqual(pr["full"], "Учебная практика (слесарная)")
@@ -152,6 +152,13 @@ class TestDayVariants(unittest.TestCase):
         self.assertIn(("Мингазова А.А.", 108), heads)
         self.assertTrue(d["published"],
                         "«Нет учебных занятий» ≠ «не опубликовано»")
+        # карточка реального вида: название только в заголовке вместе
+        # с группой и датой — лишнее отрезаем
+        pr2 = d["practice"][1]
+        self.assertEqual(pr2["short"], "Практика")
+        self.assertEqual(pr2["room"], "203м")
+        self.assertIn(("Хазипова Л.Н.", 77),
+                      [(h["short"], h.get("id")) for h in pr2["heads"]])
 
     def test_empty_subgroup_kept(self):
         """У пустой половины подгруппы блок сохраняется: иначе предмет

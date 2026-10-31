@@ -146,6 +146,22 @@ def day_practice():
       </div>
     </div>
   </div>
+  <!-- реальный облик карточки практики: в заголовке только
+       «Практика группы X на <дата>», без названия в теле -->
+  <div class="card myCard mb-2">
+    <div class="card-header d-flex">
+      <span class="h5">Практика группы ТМ-241 на воскресенье, 11 октября 2026 года</span>
+    </div>
+    <div class="card-body">
+      <div class="d-flex flex-column">
+        <div class="d-flex flex-row align-items-center">
+          <span class="text-nowrap">ауд.<span class="h5 font-weight-bold"><a href="/fulltime/rooms?idAudience=41"
+            title="Мастерская">203м</a></span></span>
+          <span class="Staff d-md-none" data-id=77 title="Хазипова Лилия Наилевна">Хазипова&nbsp;Л.Н.</span>
+        </div>
+      </div>
+    </div>
+  </div>
 """ + GRAF + FOOT
 
 

@@ -542,10 +542,15 @@ def _parse_practice_card(card):
 
     short, full = _variant_subject(body)
     if not short and header is not None:
-        # заголовок без номера: «Практика», «УП слесарная 08 00 - 16 00» …
+        # заголовок без номера: «Практика группы СА-231б на пятницу,
+        # 30 октября 2026 года» → просто «Практика»; группу и дату
+        # не повторяем — они и так видны на странице дня.
         txt = header.norm_text()
         txt = re.sub(r"\d{1,2}\s*\d{2}\s*-\s*\d{1,2}\s*\d{2}", " ", txt)
         txt = re.sub(r"\d{1,2}:\d{2}\s*-\s*\d{1,2}:\d{2}", " ", txt)
+        cut = re.search(r"\s+группы\s+", txt)
+        if cut is not None:
+            txt = txt[:cut.start()]
         short = clean(txt)
 
     teachers = _extract_staff(body)
