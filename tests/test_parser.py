@@ -133,6 +133,51 @@ class TestDayVariants(unittest.TestCase):
         self.assertEqual(len(d["consultations"]), 1)
         self.assertIn("Зинкин", d["consultations"][0])
 
+    def test_practice_card_is_not_lost(self):
+        """День практики: карточка без номера пары идёт в practice[],
+        а не превращается в «пару» с пустой дисциплиной и не исчезает."""
+        d = P.build_day(9002, "2026-10-11", F.day_practice(), BELLS)
+        self.assertEqual(d["pairs"], [], "пар нет")
+        self.assertEqual(len(d["practice"]), 1)
+        pr = d["practice"][0]
+        self.assertEqual(pr["short"], "УП слесарная")
+        self.assertEqual(pr["full"], "Учебная практика (слесарная)")
+        self.assertEqual((pr["start"], pr["end"]), ("08:00", "16:00"))
+        self.assertEqual(pr["room"], "331")
+        self.assertEqual(pr["roomTitle"], "Слесарная мастерская")
+        self.assertEqual(pr["hours"], "36")
+        self.assertEqual(pr["period"], "02/11-08/11/2026")
+        heads = [(h["short"], h.get("id")) for h in pr["heads"]]
+        self.assertIn(("Сарайло Л.В.", 874), heads)
+        self.assertIn(("Мингазова А.А.", 108), heads)
+        self.assertTrue(d["published"],
+                        "«Нет учебных занятий» ≠ «не опубликовано»")
+
+    def test_empty_subgroup_kept(self):
+        """У пустой половины подгруппы блок сохраняется: иначе предмет
+        соседней подгруппы показывался бы как предмет всей группы."""
+        d = P.build_day(9001, "2026-10-09", F.day_subgroup_gap(), BELLS)
+        self.assertEqual(len(d["pairs"]), 2)
+        p = d["pairs"][0]
+        self.assertEqual(p["variants"], 2)
+        self.assertEqual([x["subgroup"] for x in p["parts"]], ["1 п/гр.", "2 п/гр."])
+        self.assertEqual(p["parts"][0]["subject"], "")
+        self.assertEqual(p["parts"][0]["room"], "")
+        self.assertEqual(p["parts"][1]["subject"], "Информатика")
+        self.assertEqual(p["parts"][1]["room"], "107")
+        # плоские поля собираются только из непустых вариантов
+        self.assertEqual(p["subject"], "Информатика")
+        self.assertEqual(p["room"], "107")
+
+    def test_subgroup_from_container_class(self):
+        """subGroup1/subGroup2 на контейнере варианта (настоящая разметка)."""
+        html = F.day_subgroup_gap()
+        self.assertIn('class="d-flex flex-column subGroup1"', html)
+        d = P.parse_day(html)
+        self.assertTrue(d["pairs"])                       # пара нашлась
+        p = P.build_day(9001, "2026-10-09", html, BELLS)["pairs"][0]
+        self.assertEqual(p["parts"][1]["subject"], "Информатика")
+
     def test_blocked_page_is_rejectable(self):
         """У заглушки нет ни названия группы, ни пар — бот обязан её отбросить."""
         d = P.build_day(1042, "2026-10-05", F.blocked_page(), BELLS)
@@ -156,6 +201,12 @@ class TestHelpers(unittest.TestCase):
         self.assertEqual(P._norm_subgroup("1 п/гр."), "1 п/гр.")
         self.assertEqual(P._norm_subgroup("2 подгруппа"), "2 п/гр.")
         self.assertEqual(P._norm_subgroup("без подгруппы"), "")
+
+    def test_looks_like_404(self):
+        self.assertTrue(P.looks_like_404(F.not_found_page()))
+        self.assertTrue(P.looks_like_404("<html><body>Страница не найдена</body></html>"))
+        self.assertFalse(P.looks_like_404(F.day_with_pairs()))
+        self.assertFalse(P.looks_like_404(""))
 
     def test_nested_flex_columns_are_one_variant(self):
         html = (F.HEAD + '<div class="header3">Расписание занятий группы X на пятницу</div>'

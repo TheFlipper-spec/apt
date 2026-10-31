@@ -3,7 +3,7 @@
    данные расписания — «сеть вперёд, кэш как запасной аэродром». */
 "use strict";
 
-const VERSION = "apt-v3";
+const VERSION = "apt-v4";
 const SHELL = `${VERSION}-shell`;
 const DATA = `${VERSION}-data`;
 

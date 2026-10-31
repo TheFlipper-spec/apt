@@ -39,6 +39,11 @@ PAGES = {
     "2026-10-10": F.day_empty,             # суббота без пар
     # 2026-10-11 (вс) файла нет вовсе — проверяем «данных нет»
 }
+# отличия по отдельным группам/датам
+PAGES_EXTRA = {
+    9001: {"2026-10-09": F.day_subgroup_gap},   # пара только у 2-й подгруппы
+    9002: {"2026-10-11": F.day_practice},       # пар нет, но есть практика
+}
 
 
 def main():
@@ -48,7 +53,9 @@ def main():
              {"ok": True, "bells": [list(b) for b in P.BELLS_FALLBACK], "source": "fixture"})
 
     for g in GROUPS:
-        for date_s, page in PAGES.items():
+        pages = dict(PAGES)
+        pages.update(PAGES_EXTRA.get(g["id"], {}))
+        for date_s, page in pages.items():
             d = P.build_day(g["id"], date_s, page(), BELLS)
             d["group"] = g["name"]
             d["groupName"] = g["name"]
