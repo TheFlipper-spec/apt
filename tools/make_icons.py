@@ -2,7 +2,7 @@
 # -*- coding: utf-8 -*-
 """
 Генерация PNG-иконок приложения без внешних зависимостей
-(в образе нет rsvg/Pillow, поэтому рисуем сами).
+(в образе нет rsvg/Pillow, поэтому рисуем сами по геометрии static/icons/icon.svg).
 
     python3 tools/make_icons.py
 """
@@ -14,8 +14,8 @@ import zlib
 OUT = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
                    "static", "icons")
 
-GRAD_A = (0x4f, 0x63, 0xf0)
-GRAD_B = (0x8b, 0x5c, 0xf6)
+BG = (0x1f, 0x4f, 0xd8)
+AMBER = (0xf2, 0xa9, 0x3b)
 WHITE = (255, 255, 255)
 SS = 3                                   # суперсэмплинг
 
@@ -29,16 +29,23 @@ def rrect_sd(x, y, cx, cy, hw, hh, r):
             + min(max(qx, qy), 0.0) - r)
 
 
-def circle_sd(x, y, cx, cy, r):
-    return math.hypot(x - cx, y - cy) - r
-
-
-def seg_sd(x, y, ax, ay, bx, by):
-    pax, pay = x - ax, y - ay
-    bax, bay = bx - ax, by - ay
-    denom = bax * bax + bay * bay
-    h = 0.0 if denom == 0 else max(0.0, min(1.0, (pax * bax + pay * bay) / denom))
-    return math.hypot(pax - bax * h, pay - bay * h)
+def poly_sd(x, y, pts):
+    """Знаковое расстояние до простого многоугольника."""
+    d = 1e18
+    s = 1.0
+    n = len(pts)
+    for i in range(n):
+        ax, ay = pts[i]
+        bx, by = pts[(i - 1) % n]
+        ex, ey = bx - ax, by - ay
+        wx, wy = x - ax, y - ay
+        denom = ex * ex + ey * ey
+        t = 0.0 if denom == 0 else max(0.0, min(1.0, (wx * ex + wy * ey) / denom))
+        px, py = wx - ex * t, wy - ey * t
+        d = min(d, px * px + py * py)
+        if (y >= ay and y < by and ex * wy > ey * wx) or (y < ay and y >= by and ex * wy < ey * wx):
+            s = -s
+    return s * math.sqrt(d)
 
 
 def over(dst, src, a):
@@ -52,12 +59,6 @@ def over(dst, src, a):
 def cov(sd):
     """Покрытие пикселя по знаковому расстоянию (сглаживание)."""
     return max(0.0, min(1.0, 0.5 - sd))
-
-
-def shade(x, y, n):
-    """Диагональный градиент фона."""
-    t = max(0.0, min(1.0, (x / n + y / n) / 2))
-    return tuple(int(round(a + (b - a) * t)) for a, b in zip(GRAD_A, GRAD_B))
 
 
 def render(n, pad_ratio=0.0, bg=None):
@@ -108,29 +109,19 @@ def pixel(x, y, X, k, s, bg):
         plate = cov(rrect_sd(x, y, s / 2, s / 2, s / 2, s / 2, 112 * (s / 512.0)))
         if plate <= 0:
             return (0, 0, 0), 0.0
-        base, alpha = shade(x, y, s), plate
+        base, alpha = BG, plate
     col = base
 
-    sw = 26 * k / 2                        # половина толщины обводки
+    # ---- монограмма «А» (совпадает с static/icons/icon.svg)
+    dy = 4 if bg is not None else 0
+    outer = [(X(v[0]), X(v[1] - dy)) for v in ((232, 100), (280, 100), (408, 404), (342, 404), (256, 200), (170, 404), (104, 404))]
+    hull = [(X(v[0]), X(v[1] - dy)) for v in ((232, 100), (280, 100), (408, 404), (104, 404))]
+    col = over(col, WHITE, cov(poly_sd(x, y, outer)))
 
-    # ---- рамка «календаря»
-    frame = abs(rrect_sd(x, y, X(256), X(258), X(140) - X(0), X(126) - X(0), 40 * k)) - sw
-    col = over(col, WHITE, cov(frame))
-
-    # ---- верхняя линия и «ушки»
-    line = seg_sd(x, y, X(116), X(206), X(396), X(206)) - sw
-    col = over(col, WHITE, cov(line))
-    for ex in (186, 326):
-        ear = seg_sd(x, y, X(ex), X(104), X(ex), X(160)) - sw
-        col = over(col, WHITE, cov(ear))
-
-    # ---- «пары» внутри
-    for cx, cy, hw in ((202, 261, 42), (230, 319, 70)):
-        bar = rrect_sd(x, y, X(cx), X(cy), hw * k, 13 * k, 13 * k)
-        col = over(col, WHITE, cov(bar))
-    for cx, cy in ((300, 261), (340, 319)):
-        dot = circle_sd(x, y, X(cx), X(cy), 15 * k)
-        col = over(col, WHITE, cov(dot))
+    # ---- янтарная перекладина внутри контура «А»
+    bar_sd = max(poly_sd(x, y, hull),
+                 rrect_sd(x, y, X(256), X(326 - dy), 166 * k, 22 * k, 0))
+    col = over(col, AMBER, cov(bar_sd))
 
     return col, alpha
 
@@ -157,8 +148,8 @@ def main():
     jobs = [
         ("icon-192.png", 192, 0.0, None),
         ("icon-512.png", 512, 0.0, None),
-        ("apple-touch-icon.png", 180, 0.0, None),
-        ("maskable-512.png", 512, 0.12, GRAD_A),
+        ("apple-touch-icon.png", 180, 0.0, BG),
+        ("maskable-512.png", 512, 0.11, BG),
         ("favicon-32.png", 32, 0.0, None),
     ]
     for name, n, pad, bg in jobs:

@@ -411,7 +411,7 @@ test("горячие клавиши листают дни и открывают 
 });
 
 test("устаревшее зеркало показывает предупреждение", async () => {
-  const old = { ok: true, generatedAt: Math.floor(Date.now() / 1000) - 9 * 3600,
+  const old = { ok: true, generatedAt: Math.floor(Date.now() / 1000) - 30 * 3600,
                 today: "2026-10-05", dates: [], groups: 2 };
   const dom = await boot({ hash: "#/9001/2026-10-05",
                            fetchOpts: { override: { "data/meta.json": old } } });
