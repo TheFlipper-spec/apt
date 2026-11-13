@@ -6,7 +6,7 @@
    пользователям не нужен Ctrl+Shift+R. */
 "use strict";
 
-const SHELL_VERSION = "apt-shell-v5";
+const SHELL_VERSION = "apt-shell-v6";
 const DATA_VERSION = "apt-data-v1";
 const SHELL = SHELL_VERSION;
 const DATA = DATA_VERSION;
@@ -15,6 +15,8 @@ const SHELL_FILES = [
   "./",
   "./index.html",
   "./manifest.webmanifest",
+  "./fonts/onest-cyrillic.woff2",
+  "./fonts/onest-latin.woff2",
   "./icons/icon-192.png",
   "./icons/icon-512.png",
   "./icons/maskable-512.png",
